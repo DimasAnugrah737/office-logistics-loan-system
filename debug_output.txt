@@ -1,3 +1,0 @@
-Database connected
-Total notifications: 3
-First notification: {"id":1,"userId":1,"title":"New Borrowing Request","message":"Sintia requested to borrow 1x BMW M3","type":"borrow_request","isRead":true,"path":null,"relatedBorrowingId":1,"createdAt":"2026-02-16T02:20:47.000Z","updatedAt":"2026-02-16T02:32:50.000Z"}

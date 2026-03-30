@@ -16,7 +16,8 @@ export const SocketProvider = ({ children }) => {
     useEffect(() => {
         if (!user) return;
 
-        const newSocket = io('http://localhost:5000', {
+        const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:5000';
+        const newSocket = io(wsUrl, {
             transports: ['websocket', 'polling']
         });
 
@@ -34,6 +35,8 @@ export const SocketProvider = ({ children }) => {
                 toast.error(data.message, { duration: 5000 });
             } else if (data.type === 'return_approved') {
                 toast.success(data.message, { duration: 5000 });
+            } else if (data.type === 'borrow_request' || data.type === 'return_request') {
+                toast(data.message, { icon: '🔔', duration: 5000 });
             } else {
                 toast(data.message, { duration: 4000 });
             }

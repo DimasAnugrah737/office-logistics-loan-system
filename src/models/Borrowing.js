@@ -48,7 +48,7 @@ const Borrowing = sequelize.define('Borrowing', {
     allowNull: true
   },
   status: {
-    type: DataTypes.ENUM('pending', 'approved', 'rejected', 'borrowed', 'returning', 'returned', 'overdue'),
+    type: DataTypes.ENUM('pending', 'approved', 'rejected', 'borrowed', 'returning', 'returned', 'cancelled', 'overdue'),
     defaultValue: 'pending'
   },
   approvedBy: {
@@ -83,13 +83,25 @@ const Borrowing = sequelize.define('Borrowing', {
     type: DataTypes.DECIMAL(10, 2),
     defaultValue: 0
   },
+  penaltyStatus: {
+    type: DataTypes.ENUM('none', 'unpaid', 'paid'),
+    defaultValue: 'none'
+  },
+  returnNotes: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
   conditionBefore: {
-    type: DataTypes.ENUM('excellent', 'good', 'fair', 'poor'),
+    type: DataTypes.ENUM('good', 'broken'),
     allowNull: true
   },
   conditionAfter: {
-    type: DataTypes.ENUM('excellent', 'good', 'fair', 'poor', 'broken'),
+    type: DataTypes.ENUM('good', 'broken'),
     allowNull: true
+  },
+  lastEscalation: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
   }
 }, {
   tableName: 'borrowings',

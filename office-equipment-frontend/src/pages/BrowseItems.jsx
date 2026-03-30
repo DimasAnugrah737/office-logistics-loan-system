@@ -4,7 +4,7 @@ import { categoriesAPI } from '../api/categories';
 import { borrowingsAPI } from '../api/borrowings';
 import { useApi } from '../hooks/useApi';
 import { useAuth } from '../contexts/AuthContext';
-import { FiSearch, FiFilter, FiPackage, FiCalendar, FiInfo } from 'react-icons/fi';
+import { FiSearch, FiPackage, FiCalendar, FiInfo, FiGrid } from 'react-icons/fi';
 import { FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -16,12 +16,14 @@ const BrowseItems = () => {
   const [filteredItems, setFilteredItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
-  const [conditionFilter, setConditionFilter] = useState('all');
   const [availabilityFilter, setAvailabilityFilter] = useState('available');
   const [isBorrowModalOpen, setIsBorrowModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
+  const [isDescriptionModalOpen, setIsDescriptionModalOpen] = useState(false);
+  const [viewingItem, setViewingItem] = useState(null);
   const [borrowForm, setBorrowForm] = useState({
     quantity: 1,
+    borrowDate: '',
     expectedReturnDate: '',
     purpose: '',
   });
@@ -36,15 +38,24 @@ const BrowseItems = () => {
 
   useEffect(() => {
     filterItems();
-  }, [items, searchTerm, selectedCategory, conditionFilter, availabilityFilter]);
+  }, [items, searchTerm, selectedCategory, availabilityFilter]);
 
   const loadData = async () => {
     try {
-      const [itemsData, categoriesData] = await Promise.all([
+      const [data, categoriesData] = await Promise.all([
         fetchItems({ available: true }),
         fetchCategories(),
       ]);
-      setItems(itemsData);
+
+      // Handle both old array format and new paginated object format for items
+      if (data && data.items) {
+        setItems(data.items);
+      } else if (Array.isArray(data)) {
+        setItems(data);
+      } else {
+        setItems([]);
+      }
+
       setCategories(categoriesData);
     } catch (error) {
       console.error('Failed to load data:', error);
@@ -71,11 +82,6 @@ const BrowseItems = () => {
       });
     }
 
-    // Condition filter
-    if (conditionFilter !== 'all') {
-      filtered = filtered.filter((item) => item.condition === conditionFilter);
-    }
-
     // Availability filter
     if (availabilityFilter !== 'all') {
       if (availabilityFilter === 'available') {
@@ -91,20 +97,25 @@ const BrowseItems = () => {
   };
 
   const handleBorrowClick = (item) => {
+    if (user?.isBlockedFromBorrowing) {
+      toast.error(`Peminjaman ditangguhkan: ${user.blockReason || 'Silakan kembalikan barang yang terlambat terlebih dahulu.'}`);
+      return;
+    }
+
     if (!item.isAvailable || item.availableQuantity === 0) {
       toast.error('This item is not available for borrowing');
       return;
     }
 
-    // Set minimum return date (tomorrow)
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const minDate = format(tomorrow, 'yyyy-MM-dd');
+    // Set minimum return date (today)
+    const today = new Date();
+    const todayStr = format(today, 'yyyy-MM-dd');
 
     setSelectedItem(item);
     setBorrowForm({
       quantity: 1,
-      expectedReturnDate: minDate,
+      borrowDate: todayStr,
+      expectedReturnDate: todayStr,
       purpose: '',
     });
     setIsBorrowModalOpen(true);
@@ -131,12 +142,18 @@ const BrowseItems = () => {
       return;
     }
 
+    const borrowDate = new Date(borrowForm.borrowDate);
     const returnDate = new Date(borrowForm.expectedReturnDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    if (returnDate <= today) {
-      toast.error('Return date must be in the future');
+    if (borrowDate < today) {
+      toast.error('Borrow date cannot be in the past');
+      return;
+    }
+
+    if (returnDate < borrowDate) {
+      toast.error('Return date cannot be earlier than borrow date');
       return;
     }
 
@@ -149,15 +166,17 @@ const BrowseItems = () => {
       await createBorrowing({
         itemId: selectedItem.id,
         quantity: borrowForm.quantity,
+        borrowDate: borrowDate.toISOString(),
         expectedReturnDate: returnDate.toISOString(),
         purpose: borrowForm.purpose,
       });
 
-      toast.success('Borrowing request submitted successfully');
+      toast.success('Permintaan peminjaman berhasil diajukan');
       setIsBorrowModalOpen(false);
       setSelectedItem(null);
       setBorrowForm({
         quantity: 1,
+        borrowDate: '',
         expectedReturnDate: '',
         purpose: '',
       });
@@ -167,12 +186,14 @@ const BrowseItems = () => {
     }
   };
 
+  const handleReadDescription = (item) => {
+    setViewingItem(item);
+    setIsDescriptionModalOpen(true);
+  };
+
   const getConditionColor = (condition) => {
     const colors = {
-      excellent: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
       good: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
-      fair: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
-      poor: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300',
       broken: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
     };
     return colors[condition] || colors.good;
@@ -182,98 +203,78 @@ const BrowseItems = () => {
     <div className="space-y-6">
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Browse Equipment</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Cari Barang</h1>
           <p className="text-sm text-gray-500 dark:text-slate-400">
-            Browse available equipment and submit requests
+            Cari barang yang tersedia dan ajukan peminjaman
           </p>
         </div>
       </div>
 
-      {/* Search and Filters */}
-      <div className="filter-bar">
-        <div className="filter-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="filter-group">
-            <label className="filter-label">
-              Search Equipment
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FiSearch className="h-5 w-5 text-gray-400" />
-              </div>
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="input-field pl-10"
-                placeholder="Search by name or description..."
-              />
-            </div>
+      {user?.isBlockedFromBorrowing ? (
+        <div className="bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/50 rounded-[2rem] p-8 sm:p-16 text-center shadow-xl mb-6">
+          <div className="inline-flex items-center justify-center w-20 h-20 sm:w-24 sm:h-24 bg-red-100 dark:bg-red-900/30 rounded-full mb-6 sm:mb-8 text-red-600 dark:text-red-400">
+            <FiInfo size={48} className="animate-pulse" />
+          </div>
+          <h2 className="text-2xl sm:text-4xl font-black text-red-900 dark:text-red-300 uppercase tracking-tighter mb-4">
+            Akses Ditangguhkan
+          </h2>
+          <p className="text-sm sm:text-lg text-red-700 dark:text-red-400 font-medium max-w-2xl mx-auto leading-relaxed">
+            {user.blockReason || 'Anda tidak diizinkan untuk melihat daftar barang karena ada peminjaman yang terlambat. Silakan kembalikan barang terlebih dahulu.'}
+          </p>
+        </div>
+      ) : (
+        <>
+      {/* Simplified Filters Section */}
+      <div className="bg-white dark:bg-[#1e293b] rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 p-4 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+          {/* Search Bar */}
+          <div className="lg:col-span-5 relative">
+            <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-5 w-5" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Cari peralatan..."
+              className="w-full pl-10 pr-4 py-2.5 bg-gray-50/50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-700 focus:border-primary-500 dark:focus:border-primary-400 rounded-xl outline-none text-sm font-medium transition-all"
+            />
           </div>
 
-          <div className="filter-group">
-            <label className="filter-label">
-              Category
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FiFilter className="h-5 w-5 text-gray-400" />
-              </div>
+          {/* Grouped Dropdowns */}
+          <div className="lg:col-span-7 grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="relative group">
+              <FiGrid className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4 pointer-events-none" />
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="input-field pl-10"
+                className="w-full pl-10 pr-8 py-2.5 bg-gray-50/50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-700 rounded-xl outline-none text-xs font-bold uppercase tracking-wider appearance-none cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-800 transition-all text-gray-500 dark:text-gray-400"
               >
-                <option value="all">All Categories</option>
+                <option value="all">Kategori</option>
                 {categories.map((category) => (
                   <option key={category.id} value={category.id}>
                     {category.name}
                   </option>
                 ))}
               </select>
-            </div>
-          </div>
-
-          <div className="filter-group">
-            <label className="filter-label">
-              Condition
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FiFilter className="h-5 w-5 text-gray-400" />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path></svg>
               </div>
-              <select
-                value={conditionFilter}
-                onChange={(e) => setConditionFilter(e.target.value)}
-                className="input-field pl-10"
-              >
-                <option value="all">All Conditions</option>
-                <option value="excellent">Excellent</option>
-                <option value="good">Good</option>
-                <option value="fair">Fair</option>
-                <option value="poor">Poor</option>
-                <option value="broken">Broken</option>
-              </select>
             </div>
-          </div>
 
-          <div className="filter-group">
-            <label className="filter-label">
-              Availability
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FiPackage className="h-5 w-5 text-gray-400" />
-              </div>
+
+            <div className="relative group col-span-2 md:col-span-1">
+              <FiPackage className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4 pointer-events-none" />
               <select
                 value={availabilityFilter}
                 onChange={(e) => setAvailabilityFilter(e.target.value)}
-                className="input-field pl-10"
+                className="w-full pl-10 pr-8 py-2.5 bg-gray-50/50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-700 rounded-xl outline-none text-xs font-bold uppercase tracking-wider appearance-none cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-800 transition-all text-gray-500 dark:text-gray-400"
               >
-                <option value="all">All Items</option>
-                <option value="available">Available Now</option>
-                <option value="borrowed">Currently Borrowed</option>
-                <option value="maintenance">Maintenance/Broken</option>
+                <option value="all">Ketersediaan</option>
+                <option value="available">Tersedia</option>
+                <option value="unavailable">Habis</option>
               </select>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path></svg>
+              </div>
             </div>
           </div>
         </div>
@@ -282,7 +283,7 @@ const BrowseItems = () => {
       {/* Items Grid */}
       <div className="card">
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
             {[1, 2, 3, 4, 5, 6].map((n) => (
               <div key={n} className="bg-gray-100 dark:bg-gray-700 rounded-lg p-6 animate-pulse">
                 <div className="h-4 bg-gray-300 dark:bg-gray-600 rounded mb-4"></div>
@@ -297,26 +298,26 @@ const BrowseItems = () => {
               <FiPackage className="h-full w-full" />
             </div>
             <h3 className="mt-4 text-lg font-medium text-gray-900 dark:text-white">
-              No items found
+              Tidak ada barang ditemukan
             </h3>
             <p className="mt-2 text-gray-600 dark:text-gray-400">
               {items.length === 0
-                ? "No equipment available at the moment."
-                : "No items match your search criteria."}
+                ? "Tidak ada peralatan yang tersedia saat ini."
+                : "Tidak ada barang yang sesuai dengan kriteria pencarian Anda."}
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
             {filteredItems.map((item) => (
               <div
                 key={item.id}
-                className="bg-gray-50 dark:bg-gray-700 rounded-lg p-6 hover:shadow-lg transition-shadow"
+                className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-3 sm:p-6 hover:shadow-lg transition-shadow border border-gray-100 dark:border-gray-600/50 flex flex-col"
               >
-                <div className="relative pb-48 overflow-hidden rounded-t-lg mb-4 -mx-6 -mt-6">
+                <div className="relative h-32 sm:h-48 overflow-hidden rounded-t-lg mb-4 -mx-3 sm:-mx-6 -mt-3 sm:-mt-6">
                   {item.image ? (
                     <img
                       className="absolute inset-0 h-full w-full object-cover"
-                      src={`http://localhost:5000${item.image}`}
+                      src={`${import.meta.env.VITE_WS_URL || 'http://localhost:5000'}${item.image}`}
                       alt={item.name}
                       onError={(e) => {
                         e.target.style.display = 'none'; // Hide if broken
@@ -329,76 +330,61 @@ const BrowseItems = () => {
                   )}
                 </div>
                 <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm sm:text-lg font-bold text-gray-900 dark:text-white truncate">
                       {item.name}
                     </h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                      {item.description || 'No description available'}
-                    </p>
                   </div>
-                  <div className="flex space-x-2">
+                  <div className="flex shrink-0 flex-col space-y-2 ml-4">
                     <button
                       onClick={() => handleBorrowClick(item)}
-                      className="btn-primary text-sm py-1 px-3"
+                      className={`btn-primary text-[10px] sm:text-xs py-1 px-3 shadow-sm ${user?.isBlockedFromBorrowing ? 'opacity-50 bg-red-400 hover:bg-red-500 border-none' : ''}`}
                       disabled={!item.isAvailable || item.availableQuantity === 0}
                     >
-                      Borrow
+                      Pinjam
+                    </button>
+                    <button
+                      onClick={() => handleReadDescription(item)}
+                      className="flex items-center justify-center py-1 px-3 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-[10px] sm:text-xs font-bold hover:bg-gray-200 dark:hover:bg-gray-600 transition-all border border-gray-100 dark:border-gray-600"
+                    >
+                      <FiInfo className="mr-1" /> Read
                     </button>
                   </div>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-2 sm:space-y-3 mt-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500 dark:text-gray-400">Category</span>
-                    <span className="text-sm font-medium">
-                      {typeof item.category === 'object' ? item.category.name : 'Loading...'}
+                    <span className="text-[10px] sm:text-sm text-gray-500 dark:text-gray-400">Kategori</span>
+                    <span className="text-[10px] sm:text-sm font-medium truncate ml-2">
+                      {typeof item.category === 'object' ? item.category.name : 'Memuat...'}
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500 dark:text-gray-400">Available</span>
-                    <span className="text-sm font-medium">
+                    <span className="text-[10px] sm:text-sm text-gray-500 dark:text-gray-400">Stok</span>
+                    <span className="text-[10px] sm:text-sm font-bold text-primary-600">
                       {item.availableQuantity} / {item.quantity}
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500 dark:text-gray-400">Condition</span>
-                    <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getConditionColor(
-                        item.condition
-                      )}`}
-                    >
-                      {item.condition.charAt(0).toUpperCase() + item.condition.slice(1)}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500 dark:text-gray-400">Status</span>
+                    <span className="text-[10px] sm:text-sm text-gray-500 dark:text-gray-400">Status</span>
                     {item.isAvailable && item.availableQuantity > 0 ? (
-                      <span className="inline-flex items-center text-green-600 dark:text-green-400 text-sm">
-                        <FaCheckCircle className="mr-1" /> Available
+                      <span className="inline-flex items-center text-emerald-600 dark:text-emerald-400 text-[10px] sm:text-sm font-bold">
+                        <FaCheckCircle className="mr-1" /> OK
                       </span>
                     ) : (
-                      <span className="inline-flex items-center text-red-600 dark:text-red-400 text-sm">
-                        <FaTimesCircle className="mr-1" /> Unavailable
+                      <span className="inline-flex items-center text-red-600 dark:text-red-400 text-[10px] sm:text-sm font-bold">
+                        <FaTimesCircle className="mr-1" /> NO
                       </span>
                     )}
                   </div>
-
-                  {item.location && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-500 dark:text-gray-400">Location</span>
-                      <span className="text-sm font-medium">{item.location}</span>
-                    </div>
-                  )}
                 </div>
 
                 {item.serialNumber && (
                   <div className="mt-4 pt-4 border-t dark:border-gray-600">
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Serial: {item.serialNumber}
+                      Seri: {item.serialNumber}
                     </p>
                   </div>
                 )}
@@ -416,7 +402,7 @@ const BrowseItems = () => {
               <FiPackage className="h-6 w-6 text-primary-600 dark:text-primary-400" />
             </div>
             <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Items</p>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Barang</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white">
                 {items.length}
               </p>
@@ -430,7 +416,7 @@ const BrowseItems = () => {
               <FaCheckCircle className="h-6 w-6 text-green-600 dark:text-green-400" />
             </div>
             <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Available</p>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Tersedia</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white">
                 {items.filter(item => item.isAvailable && item.availableQuantity > 0).length}
               </p>
@@ -444,7 +430,7 @@ const BrowseItems = () => {
               <FiCalendar className="h-6 w-6 text-blue-600 dark:text-blue-400" />
             </div>
             <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Categories</p>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Kategori</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white">
                 {categories.length}
               </p>
@@ -452,11 +438,13 @@ const BrowseItems = () => {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* Borrow Modal */}
       {isBorrowModalOpen && selectedItem && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+        <div className="fixed inset-0 z-30 overflow-y-auto pt-16 sm:pt-20">
+          <div className="flex items-center justify-center min-h-[calc(100vh-5rem)] px-4 pt-4 pb-20 text-center sm:block sm:p-0">
             <div
               className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
               onClick={() => setIsBorrowModalOpen(false)}
@@ -465,7 +453,7 @@ const BrowseItems = () => {
             <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md sm:w-full sm:p-6">
               <div>
                 <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-                  Borrow Request
+                  Permintaan Peminjaman
                 </h3>
 
                 <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
@@ -474,14 +462,8 @@ const BrowseItems = () => {
                   </h4>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
-                      <span className="text-gray-500 dark:text-gray-400">Available:</span>
+                      <span className="text-gray-500 dark:text-gray-400">Tersedia:</span>
                       <span className="ml-2 font-medium">{selectedItem.availableQuantity}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 dark:text-gray-400">Condition:</span>
-                      <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${getConditionColor(selectedItem.condition)}`}>
-                        {selectedItem.condition}
-                      </span>
                     </div>
                   </div>
                 </div>
@@ -489,7 +471,7 @@ const BrowseItems = () => {
                 <form onSubmit={handleBorrowSubmit} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Quantity *
+                      Jumlah *
                     </label>
                     <input
                       type="number"
@@ -504,33 +486,58 @@ const BrowseItems = () => {
                       required
                     />
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Maximum {selectedItem.availableQuantity} items available
+                      Maksimum {selectedItem.availableQuantity} barang tersedia
                     </p>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Expected Return Date *
-                    </label>
-                    <input
-                      type="date"
-                      value={borrowForm.expectedReturnDate}
-                      onChange={(e) => setBorrowForm({
-                        ...borrowForm,
-                        expectedReturnDate: e.target.value
-                      })}
-                      className="input-field"
-                      min={format(new Date(new Date().setDate(new Date().getDate() + 1)), 'yyyy-MM-dd')}
-                      required
-                    />
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Please select a future date
-                    </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Tanggal Pinjam *
+                      </label>
+                      <input
+                        type={borrowForm.borrowDate ? 'date' : 'text'}
+                        onFocus={(e) => (e.target.type = 'date')}
+                        onBlur={(e) => (e.target.type = borrowForm.borrowDate ? 'date' : 'text')}
+                        placeholder="Pilih Tanggal"
+                        value={borrowForm.borrowDate}
+                        onChange={(e) => setBorrowForm({
+                          ...borrowForm,
+                          borrowDate: e.target.value
+                        })}
+                        className="input-field"
+                        min={format(new Date(), 'yyyy-MM-dd')}
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Tanggal Kembali *
+                      </label>
+                      <input
+                        type={borrowForm.expectedReturnDate ? 'date' : 'text'}
+                        onFocus={(e) => (e.target.type = 'date')}
+                        onBlur={(e) => (e.target.type = borrowForm.expectedReturnDate ? 'date' : 'text')}
+                        placeholder="Pilih Tanggal"
+                        value={borrowForm.expectedReturnDate}
+                        onChange={(e) => setBorrowForm({
+                          ...borrowForm,
+                          expectedReturnDate: e.target.value
+                        })}
+                        className="input-field"
+                        min={borrowForm.borrowDate || format(new Date(), 'yyyy-MM-dd')}
+                        required
+                      />
+                    </div>
                   </div>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Tentukan rentang tanggal untuk peminjaman Anda
+                  </p>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Purpose *
+                      Tujuan *
                     </label>
                     <textarea
                       value={borrowForm.purpose}
@@ -540,7 +547,7 @@ const BrowseItems = () => {
                       })}
                       rows="3"
                       className="input-field"
-                      placeholder="Please describe why you need this equipment..."
+                      placeholder="Silakan jelaskan mengapa Anda membutuhkan peralatan ini..."
                       required
                     />
                   </div>
@@ -551,13 +558,13 @@ const BrowseItems = () => {
                       onClick={() => setIsBorrowModalOpen(false)}
                       className="btn-secondary"
                     >
-                      Cancel
+                      Batal
                     </button>
                     <button
                       type="submit"
                       className="btn-primary"
                     >
-                      Submit Request
+                      Ajukan Permintaan
                     </button>
                   </div>
                 </form>
@@ -570,17 +577,48 @@ const BrowseItems = () => {
       {/* Help Section */}
       <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
         <h4 className="text-lg font-medium text-blue-800 dark:text-blue-300 mb-2">
-          How to Borrow Equipment
+          Cara Meminjam Peralatan
         </h4>
         <ul className="text-blue-700 dark:text-blue-400 space-y-1 text-sm">
-          <li>• Browse available equipment using the search and filters</li>
-          <li>• Click "Borrow" on an available item</li>
-          <li>• Specify quantity and expected return date</li>
-          <li>• Provide a clear purpose for borrowing</li>
-          <li>• Submit request for officer approval</li>
-          <li>• You'll be notified when your request is approved or rejected</li>
+          <li>• Cari peralatan yang tersedia menggunakan pencarian dan filter</li>
+          <li>• Klik "Pinjam" pada barang yang tersedia</li>
+          <li>• Tentukan jumlah dan tanggal pengembalian yang diharapkan</li>
+          <li>• Berikan tujuan peminjaman yang jelas</li>
+          <li>• Ajukan permintaan untuk persetujuan petugas</li>
+          <li>• Anda akan diberitahu saat permintaan Anda disetujui atau ditolak</li>
         </ul>
       </div>
+      {/* Description Modal */}
+      {isDescriptionModalOpen && viewingItem && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center p-4 pt-20 sm:pt-24 bg-gray-900/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <div className="flex items-center space-x-3 mb-6">
+                <div className="p-3 bg-primary-50 dark:bg-primary-900/20 rounded-xl">
+                  <FiInfo className="text-primary-600 dark:text-primary-400" size={24} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white uppercase tracking-tight">Deskripsi Barang</h3>
+                  <p className="text-xs text-gray-500">{viewingItem.name}</p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-gray-50 dark:bg-slate-700/50 rounded-2xl border border-gray-100 dark:border-slate-600 mb-6">
+                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed italic">
+                  {viewingItem.description || 'Tidak ada deskripsi tersedia untuk barang ini.'}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setIsDescriptionModalOpen(false)}
+                className="w-full py-3 bg-primary-600 text-white font-bold rounded-xl text-xs uppercase tracking-widest hover:bg-primary-700 transition-all shadow-lg shadow-primary-500/20"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -2,10 +2,17 @@ const ActivityLog = require('../models/ActivityLog');
 
 const logActivity = async (req, res, next) => {
   const originalSend = res.send;
-  
-  res.send = function(data) {
+
+  res.send = function (data) {
     // Log after response is sent
-    if (req.user && !req.path.includes('/logs')) {
+    /* 
+    // DISABLED: Switching to explicit manual logging in controllers for high-relevance events only.
+    // This eliminates noise from GET requests, telemetry, and automated polling.
+    const isNoisyPath = req.path.includes('/logs') || 
+                      req.path.includes('/notifications') ||
+                      req.path.includes('/auth/me');
+
+    if (req.user && req.method !== 'GET' && !isNoisyPath) {
       setTimeout(async () => {
         try {
           await ActivityLog.create({
@@ -26,10 +33,11 @@ const logActivity = async (req, res, next) => {
         }
       }, 0);
     }
-    
+    */
+
     originalSend.call(this, data);
   };
-  
+
   next();
 };
 

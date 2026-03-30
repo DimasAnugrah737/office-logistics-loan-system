@@ -44,7 +44,7 @@ const createItem = async (req, res) => {
       name,
       description,
       categoryId: categoryIdInt,
-      serialNumber,
+      serialNumber: serialNumber || null,
       quantity: quantityInt,
       availableQuantity: quantityInt,
       condition,
@@ -55,6 +55,15 @@ const createItem = async (req, res) => {
 
     // Broadcast to all users
     emitToAll('item:created', item);
+
+    // Log Activity
+    await ActivityLog.create({
+      userId: req.user.id,
+      action: `Create item: ${name}`,
+      entityType: 'item',
+      entityId: item.id,
+      details: { quantity: quantityInt, categoryId: categoryIdInt }
+    });
 
     res.status(201).json(item);
 
@@ -72,18 +81,44 @@ const createItem = async (req, res) => {
 
 // @desc    Get all items
 // @route   GET /api/items
-// @access  Private/Admin,Officer
+// @access  Private
 const getItems = async (req, res) => {
   try {
-    const items = await Item.findAll({
+    const { page = 1, limit = 10, categoryId, search, available } = req.query;
+    const offset = (page - 1) * limit;
+
+    const whereClause = {};
+    if (categoryId) whereClause.categoryId = categoryId;
+    if (available === 'true') {
+      whereClause.isAvailable = true;
+      whereClause.availableQuantity = { [Op.gt]: 0 };
+    }
+    if (search) {
+      whereClause.name = { [Op.like]: `%${search}%` };
+    }
+
+    const { count, rows: items } = await Item.findAndCountAll({
+      where: whereClause,
       include: [{
         model: Category,
         as: 'category',
-        attributes: ['id', 'name']
+        attributes: ['id', 'name', 'managingDepartment'],
+        where: req.user.role === 'officer' ? { managingDepartment: req.user.department } : undefined,
+        required: req.user.role === 'officer'
       }],
-      order: [['createdAt', 'DESC']]
+      attributes: ['id', 'name', 'description', 'categoryId', 'serialNumber', 'quantity', 'availableQuantity', 'condition', 'location', 'image', 'isAvailable'],
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit) > 0 ? parseInt(limit) : 10,
+      offset: parseInt(offset) >= 0 ? parseInt(offset) : 0,
+      distinct: true
     });
-    res.json(items);
+
+    res.json({
+      items,
+      total: count,
+      pages: Math.ceil(count / limit),
+      currentPage: parseInt(page)
+    });
   } catch (error) {
     console.error('Get items error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -191,7 +226,7 @@ const updateItem = async (req, res) => {
       name: name || item.name,
       description: description || item.description,
       categoryId: categoryIdInt || item.categoryId,
-      serialNumber: serialNumber || item.serialNumber,
+      serialNumber: serialNumber === '' ? null : (serialNumber || item.serialNumber),
       quantity: quantityInt !== undefined ? quantityInt : item.quantity,
       availableQuantity,
       condition: condition || item.condition,

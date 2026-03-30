@@ -47,8 +47,10 @@ const emitToUser = (userId, event, data) => {
     const socketId = userSockets.get(String(userId));
     if (socketId && io) {
         io.to(socketId).emit(event, data);
+        console.log(`Notification emitted to User ${userId} (Socket: ${socketId})`);
         return true;
     }
+    console.log(`Failed to emit notification to User ${userId}: Socket not found`);
     return false;
 };
 

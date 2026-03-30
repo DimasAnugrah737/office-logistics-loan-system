@@ -13,18 +13,20 @@ import ActivityLogs from '../pages/ActivityLogs';
 import MyBorrowings from '../pages/MyBorrowings';
 import BrowseItems from '../pages/BrowseItems';
 import Notifications from '../pages/Notifications';
+import ActivateAccount from '../pages/ActivateAccount';
+import Profile from '../pages/Profile';
 
 const PrivateRoute = ({ children, roles = [] }) => {
   const { isAuthenticated, user } = useAuth();
-  
+
   if (!isAuthenticated) {
     return <Navigate to="/login" />;
   }
-  
+
   if (roles.length > 0 && !roles.includes(user.role)) {
     return <Navigate to="/dashboard" />;
   }
-  
+
   return children;
 };
 
@@ -32,7 +34,8 @@ const AppRoutes = () => {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      
+      <Route path="/activate" element={<ActivateAccount />} />
+
       <Route path="/" element={<MainLayout />}>
         {/* Dashboard */}
         <Route
@@ -43,12 +46,12 @@ const AppRoutes = () => {
             </PrivateRoute>
           }
         />
-        
+
         {/* Admin only routes */}
         <Route
           path="users"
           element={
-            <PrivateRoute roles={['admin']}>
+            <PrivateRoute roles={['admin', 'officer']}>
               <Users />
             </PrivateRoute>
           }
@@ -69,7 +72,7 @@ const AppRoutes = () => {
             </PrivateRoute>
           }
         />
-        
+
         {/* Admin and Officer routes */}
         <Route
           path="items"
@@ -95,7 +98,7 @@ const AppRoutes = () => {
             </PrivateRoute>
           }
         />
-        
+
         {/* User routes */}
         <Route
           path="my-borrowings"
@@ -113,7 +116,7 @@ const AppRoutes = () => {
             </PrivateRoute>
           }
         />
-        
+
         {/* Common routes */}
         <Route
           path="notifications"
@@ -123,7 +126,15 @@ const AppRoutes = () => {
             </PrivateRoute>
           }
         />
-        
+        <Route
+          path="profile"
+          element={
+            <PrivateRoute>
+              <Profile />
+            </PrivateRoute>
+          }
+        />
+
         {/* Redirect root to dashboard */}
         <Route path="/" element={<Navigate to="/dashboard" />} />
       </Route>

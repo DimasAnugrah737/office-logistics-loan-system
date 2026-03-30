@@ -35,7 +35,7 @@ const connectDB = async () => {
 
     console.log('Database synchronized successfully');
   } catch (error) {
-    console.error('Database connection error:', error.message);
+    console.error('Database connection error:', error);
     process.exit(1);
   }
 };

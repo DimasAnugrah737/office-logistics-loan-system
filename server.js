@@ -22,6 +22,7 @@ process.on('unhandledRejection', (reason, promise) => {
 const { connectDB } = require('./src/config/database');
 const routes = require('./src/routes');
 const logActivity = require('./src/middleware/logger');
+const { checkOverdueBorrowings } = require('./src/controllers/borrowingController');
 
 // Load all models before setting up associations
 require('./src/models/User');
@@ -43,26 +44,51 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 const server = http.createServer(app);
 
-// Security Middleware
+// Custom CORS Middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  // Reflect the origin if it exists, otherwise allow all (for mobile/curl)
+  res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
+
+// Security Middleware (Modified for development)
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable CSP to avoid issues with serving the React app unless configured specifically
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// Rate Limiting
+// Rate Limiting (Increased for development)
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
   message: 'Too many requests from this IP, please try again after 15 minutes',
   standardHeaders: true,
   legacyHeaders: false,
 });
 app.use('/api', limiter);
 
+// Stricter limiter for Login (Increased to allow more attempts during testing)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 25,
+  message: { message: 'Terlalu banyak percobaan login, silakan coba lagi dalam 15 menit' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth/login', loginLimiter);
+
 // Performance Middleware
 app.use(compression());
 
-// Middleware
-app.use(cors());
+// Body Parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -99,6 +125,9 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Bind address: gunakan env HOST, atau flag --host, atau default 0.0.0.0 (development)
+const args = process.argv.slice(2);
+const HOST = process.env.HOST || (args.includes('--host') ? '0.0.0.0' : '0.0.0.0');
 const PORT = process.env.PORT || 5000;
 
 
@@ -108,12 +137,35 @@ const startServer = async () => {
     setupAssociations();
     await connectDB();
 
+    // Data Migration: Set isActivated = true for existing users with passwords
+    try {
+      const User = require('./src/models/User');
+      const { Op } = require('sequelize');
+      await User.update(
+        { isActivated: true },
+        { where: { password: { [Op.ne]: null }, isActivated: false } }
+      );
+      console.log('Migration: isActivated set for existing accounts');
+    } catch (migErr) {
+      console.warn('Migration warning (isActivated):', migErr.message);
+      // Don't crash the server for this
+    }
+
     initSocket(server);
 
-    server.listen(PORT, () => {
-      console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
+    server.listen(PORT, HOST, () => {
+      console.log(`Server running on http://${HOST}:${PORT} in ${process.env.NODE_ENV} mode`);
       console.log('Server restarted successfully with Socket.io');
     });
+
+    // Run overdue check every hour
+    if (typeof checkOverdueBorrowings === 'function') {
+      checkOverdueBorrowings(); // Run once immediately
+      setInterval(checkOverdueBorrowings, 60 * 60 * 1000);
+    } else {
+      console.error('Error: checkOverdueBorrowings is not a function upon server start');
+    }
+
   } catch (err) {
     console.error('Failed to start server:', err);
     fs.writeFileSync('server_error.log', `Server start error: ${err.message}\n${err.stack}`);

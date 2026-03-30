@@ -3,26 +3,34 @@ import { usersAPI } from '../api/users';
 import { useApi } from '../hooks/useApi';
 import { useForm } from '../hooks/useForm';
 import { useSocket } from '../contexts/SocketContext';
-import { FiEdit2, FiTrash2, FiUserPlus, FiSearch, FiFilter } from 'react-icons/fi';
+import { FiEdit2, FiTrash2, FiUserPlus, FiSearch, FiEye, FiUsers, FiX, FiKey } from 'react-icons/fi';
+import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 const Users = () => {
+  const { user: currentUser, isAdmin } = useAuth();
+  const canManageUsers = isAdmin;
   const socket = useSocket();
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRole, setFilterRole] = useState('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isViewOnly, setIsViewOnly] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [userToReset, setUserToReset] = useState(null);
 
   const { execute: fetchUsers, loading } = useApi(usersAPI.getAllUsers);
   const { execute: createUser } = useApi(usersAPI.createUser);
   const { execute: updateUser } = useApi(usersAPI.updateUser);
   const { execute: deleteUser } = useApi(usersAPI.deleteUser);
+  const { execute: resetPassword } = useApi(usersAPI.resetPassword);
 
-  const { values, setValues, handleChange, handleBlur, errors, resetForm } = useForm({
+  const { values, setValues, handleChange, handleBlur, resetForm } = useForm({
     fullName: '',
     nip: '',
     email: '',
@@ -45,34 +53,27 @@ const Users = () => {
   const loadUsers = async () => {
     try {
       const data = await fetchUsers();
-      setUsers(data);
+      // Handle both old array format and new paginated object format
+      if (data && data.users) {
+        setUsers(data.users);
+      } else if (Array.isArray(data)) {
+        setUsers(data);
+      } else {
+        setUsers([]);
+      }
     } catch (error) {
       console.error('Failed to load users:', error);
     }
   };
 
-  // Socket listeners for real-time updates
   useEffect(() => {
     if (!socket) return;
-
-    const handleUserCreated = (newUser) => {
-      setUsers(prev => [newUser, ...prev]);
-    };
-
-    const handleUserUpdated = (updatedUser) => {
-      setUsers(prev => prev.map(user =>
-        user.id === updatedUser.id ? updatedUser : user
-      ));
-    };
-
-    const handleUserDeleted = (data) => {
-      setUsers(prev => prev.filter(user => user.id !== parseInt(data.id)));
-    };
-
+    const handleUserCreated = (newUser) => setUsers(prev => [newUser, ...prev]);
+    const handleUserUpdated = (updatedUser) => setUsers(prev => prev.map(user => user.id === updatedUser.id ? updatedUser : user));
+    const handleUserDeleted = (data) => setUsers(prev => prev.filter(user => user.id !== parseInt(data.id)));
     socket.on('user:created', handleUserCreated);
     socket.on('user:updated', handleUserUpdated);
     socket.on('user:deleted', handleUserDeleted);
-
     return () => {
       socket.off('user:created', handleUserCreated);
       socket.off('user:updated', handleUserUpdated);
@@ -82,82 +83,42 @@ const Users = () => {
 
   const filterUsers = () => {
     let filtered = [...users];
-
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(
-        (user) =>
-          user.fullName.toLowerCase().includes(term) ||
-          user.nip.toLowerCase().includes(term) ||
-          user.email.toLowerCase().includes(term) ||
-          user.department?.toLowerCase().includes(term)
-      );
+      filtered = filtered.filter(user => user.fullName.toLowerCase().includes(term) || user.nip.toLowerCase().includes(term) || user.email.toLowerCase().includes(term));
     }
-
-    if (filterRole !== 'all') {
-      filtered = filtered.filter((user) => user.role === filterRole);
-    }
-
+    if (filterRole !== 'all') filtered = filtered.filter(user => user.role === filterRole);
     setFilteredUsers(filtered);
-  };
-
-  const validateForm = () => {
-    const errors = {};
-    if (!values.fullName) errors.fullName = 'Full name is required';
-    if (!values.nip) errors.nip = 'NIP is required';
-    if (!values.email) errors.email = 'Email is required';
-    if (!editingUser && !values.password) errors.password = 'Password is required';
-    if (values.email && !/\S+@\S+\.\S+/.test(values.email)) {
-      errors.email = 'Email is invalid';
-    }
-    return errors;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const validationErrors = validateForm();
-    if (Object.keys(validationErrors).length > 0) {
-      Object.values(validationErrors).forEach((error) => toast.error(error));
-      return;
-    }
-
     try {
       if (editingUser) {
-        if (!editingUser.id) {
-          toast.error('Cannot update user: User ID is missing.');
-          return;
-        }
         const { password, ...updateData } = values;
         if (!password) delete updateData.password;
         await updateUser(editingUser.id, updateData);
-        toast.success('User updated successfully');
+        toast.success('Pengguna berhasil diperbarui');
       } else {
         await createUser(values);
-        toast.success('User created successfully');
+        toast.success('Pengguna berhasil dibuat');
       }
-
       setIsModalOpen(false);
-      setEditingUser(null);
-      resetForm();
       loadUsers();
-    } catch (error) {
-      console.error('Failed to save user:', error);
-    }
+    } catch (error) { }
   };
 
   const handleEdit = (user) => {
+    setIsViewOnly(false);
     setEditingUser(user);
-    setValues({
-      fullName: user.fullName,
-      nip: user.nip,
-      email: user.email,
-      password: '',
-      role: user.role,
-      department: user.department || '',
-      position: user.position || '',
-      phone: user.phone || '',
-      isActive: user.isActive,
-    });
+    setValues({ ...user, password: '' });
+    setIsModalOpen(true);
+  };
+
+  const handleView = (user) => {
+    setIsViewOnly(true);
+    setEditingUser(user);
+    setValues({ ...user, password: '' });
     setIsModalOpen(true);
   };
 
@@ -168,464 +129,226 @@ const Users = () => {
 
   const confirmDelete = async () => {
     try {
-      if (!userToDelete?.id) {
-        toast.error('Cannot delete user: User ID is missing.');
-        setIsDeleteModalOpen(false);
-        return;
-      }
       await deleteUser(userToDelete.id);
-      toast.success('User deleted successfully');
+      toast.success('Pengguna berhasil dihapus');
       loadUsers();
-    } catch (error) {
-      console.error('Failed to delete user:', error);
     } finally {
       setIsDeleteModalOpen(false);
-      setUserToDelete(null);
     }
   };
 
-  const getRoleColor = (role) => {
-    const colors = {
-      admin: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
-      officer: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
-      user: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
-    };
-    return colors[role] || colors.user;
+  const handleResetPasswordClick = (user) => {
+    setUserToReset(user);
+    setIsResetModalOpen(true);
   };
 
-  const getStatusColor = (isActive) => {
-    return isActive
-      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
-      : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-400';
+  const confirmResetPassword = async () => {
+    try {
+      await resetPassword(userToReset.id);
+      toast.success('Password pengguna berhasil direset menjadi 123456');
+    } catch (error) {
+      toast.error('Gagal mereset password');
+    } finally {
+      setIsResetModalOpen(false);
+    }
   };
 
   return (
     <div className="space-y-6">
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">User Management</h1>
-          <p className="text-sm text-gray-500 dark:text-slate-400">
-            Manage system users and their permissions
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Pengguna</h1>
+          <p className="text-sm text-gray-500 dark:text-slate-400">Kelola pengguna sistem dan hak akses</p>
         </div>
-        <button
-          onClick={() => {
-            setEditingUser(null);
-            resetForm();
-            setIsModalOpen(true);
-          }}
-          className="btn-primary w-full sm:w-auto flex items-center justify-center"
-        >
-          <FiUserPlus className="mr-2" />
-          Add User
-        </button>
-      </div>
-
-      {/* Filters */}
-      <div className="filter-bar">
-        <div className="filter-grid !grid-cols-1 sm:!grid-cols-2">
-          <div className="filter-group">
-            <label className="filter-label">
-              Search Users
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FiSearch className="h-4 w-4 text-gray-400" />
-              </div>
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="input-field pl-10 h-10 text-sm"
-                placeholder="Search by name, NIP, or email..."
-              />
-            </div>
-          </div>
-
-          <div className="filter-group">
-            <label className="filter-label">
-              Filter by Role
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FiFilter className="h-4 w-4 text-gray-400" />
-              </div>
-              <select
-                value={filterRole}
-                onChange={(e) => setFilterRole(e.target.value)}
-                className="input-field pl-10 h-10 text-sm appearance-none"
-              >
-                <option value="all">All Roles</option>
-                <option value="admin">Admin</option>
-                <option value="officer">Officer</option>
-                <option value="user">User</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Users List */}
-      <div className="card overflow-hidden">
-        {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-          </div>
-        ) : (
-          <>
-            {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                <thead>
-                  <tr>
-                    <th className="table-header">Name</th>
-                    <th className="table-header">NIP</th>
-                    <th className="table-header">Email</th>
-                    <th className="table-header">Role</th>
-                    <th className="table-header">Department</th>
-                    <th className="table-header">Status</th>
-                    <th className="table-header">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {filteredUsers.map((user, idx) => (
-                    <tr key={user.id ?? user.email ?? idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                      <td className="table-cell">
-                        <div className="flex items-center">
-                          <div className="flex-shrink-0 h-10 w-10">
-                            <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                              <span className="text-sm font-bold text-blue-600 dark:text-blue-400">
-                                {user.fullName.charAt(0)}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="ml-4">
-                            <div className="text-sm font-bold text-gray-900 dark:text-white">
-                              {user.fullName}
-                            </div>
-                            <div className="text-[11px] font-medium text-gray-400 dark:text-slate-500">
-                              {user.position || 'No position'}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="table-cell font-mono text-[11px] font-semibold text-gray-500 dark:text-slate-400">{user.nip}</td>
-                      <td className="table-cell text-xs text-gray-500 dark:text-slate-400">{user.email}</td>
-                      <td className="table-cell">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter ${getRoleColor(user.role)}`}>
-                          {user.role}
-                        </span>
-                      </td>
-                      <td className="table-cell text-xs font-semibold text-gray-500 dark:text-slate-500 uppercase tracking-wider">{user.department || '-'}</td>
-                      <td className="table-cell text-center">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest ${getStatusColor(user.isActive)}`}>
-                          {user.isActive ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td className="table-cell">
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleEdit(user)}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                            title="Edit"
-                          >
-                            <FiEdit2 size={18} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteClick(user)}
-                            className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                            title="Delete"
-                          >
-                            <FiTrash2 size={18} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile Card View */}
-            <div className="md:hidden space-y-4 p-4">
-              {filteredUsers.map((user, idx) => (
-                <div key={user.id ?? user.email ?? idx} className="card-mobile">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 h-12 w-12">
-                        <div className="h-12 w-12 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center border border-primary-200 dark:border-primary-800">
-                          <span className="text-base font-bold text-primary-700 dark:text-primary-300">
-                            {user.fullName.charAt(0)}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="ml-3">
-                        <h4 className="text-sm font-bold text-gray-900 dark:text-white leading-tight">
-                          {user.fullName}
-                        </h4>
-                        <p className="text-xs text-gray-500 mt-0.5">{user.position || 'No position'}</p>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end space-y-1">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${getRoleColor(user.role)}`}>
-                        {user.role}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${getStatusColor(user.isActive)}`}>
-                        {user.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-y-3 mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
-                    <div>
-                      <p className="text-[10px] text-gray-500 uppercase font-semibold">NIP</p>
-                      <p className="text-sm font-mono dark:text-gray-300">{user.nip}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-gray-500 uppercase font-semibold">Department</p>
-                      <p className="text-sm dark:text-gray-300 truncate">{user.department || '-'}</p>
-                    </div>
-                    <div className="col-span-2">
-                      <p className="text-[10px] text-gray-500 uppercase font-semibold">Email</p>
-                      <p className="text-sm dark:text-gray-300">{user.email}</p>
-                    </div>
-                    <div className="col-span-2 flex justify-end space-x-2 mt-2">
-                      <button
-                        onClick={() => handleEdit(user)}
-                        className="flex-1 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-lg flex items-center justify-center text-xs font-semibold"
-                      >
-                        <FiEdit2 className="mr-1.5" size={14} /> Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteClick(user)}
-                        className="flex-1 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-lg flex items-center justify-center text-xs font-semibold"
-                      >
-                        <FiTrash2 className="mr-1.5" size={14} /> Delete
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
+        {canManageUsers && (
+          <button onClick={() => { setIsViewOnly(false); setEditingUser(null); resetForm(); setIsModalOpen(true); }} className="btn-primary">
+            <FiUserPlus className="mr-2" /> Tambah Pengguna
+          </button>
         )}
       </div>
 
-      {/* Add/Edit User Modal */}
+      <div className="bg-white dark:bg-gray-800/50 rounded-[2rem] shadow-xl shadow-gray-200/10 dark:shadow-none border border-gray-100 dark:border-slate-800 p-2 sm:p-3 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+          <div className="md:col-span-8 relative group rounded-2xl border border-gray-50 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-900/30 focus-within:border-primary-500/50 focus-within:bg-white dark:focus-within:bg-slate-800 focus-within:ring-4 focus-within:ring-primary-500/5 transition-all duration-300">
+            <label className="text-[8px] font-black text-primary-500 uppercase tracking-[0.2em] absolute top-2.5 left-11 z-10 group-focus-within:text-primary-600">Cari</label>
+            <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-primary-600 h-5 w-5" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Nama, NIP, atau Email..."
+              className="w-full pl-11 pr-4 pt-6 pb-2.5 bg-transparent outline-none text-[11px] font-bold dark:text-white placeholder-gray-300"
+            />
+          </div>
+          <div className="md:col-span-4 relative group rounded-2xl border border-gray-50 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-900/30 focus-within:border-primary-500/50 focus-within:bg-white dark:focus-within:bg-slate-800 focus-within:ring-4 focus-within:ring-primary-500/5 transition-all duration-300">
+            <label className="text-[8px] font-black text-primary-500 uppercase tracking-[0.2em] absolute top-2.5 left-11 z-10 group-focus-within:text-primary-600">Peran</label>
+            <FiUsers className="absolute left-4 top-1/2 -translate-y-1/2 text-primary-600 h-4 w-4" />
+            <select
+              value={filterRole}
+              onChange={(e) => setFilterRole(e.target.value)}
+              className="w-full pl-11 pr-8 pt-6 pb-2.5 bg-transparent outline-none text-[11px] font-bold uppercase tracking-wider appearance-none dark:text-white cursor-pointer"
+            >
+              <option value="all">Semua Peran</option>
+              <option value="admin">Administrator</option>
+              <option value="officer">Petugas</option>
+              <option value="user">Pengguna</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+            <thead>
+              <tr>
+                <th className="table-header">Pengguna</th>
+                <th className="table-header">NIP</th>
+                <th className="table-header">Peran</th>
+                <th className="table-header">Status</th>
+                <th className="table-header text-right">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              {filteredUsers.map((user) => (
+                <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                  <td className="table-cell">
+                    <div className="flex items-center">
+                      <div className="h-10 w-10 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center border border-primary-200 dark:border-primary-800">
+                        <span className="text-sm font-bold text-primary-600 dark:text-primary-300">{user.fullName ? user.fullName.charAt(0) : '?'}</span>
+                      </div>
+                      <div className="ml-3 font-medium text-gray-900 dark:text-white">{user.fullName}</div>
+                    </div>
+                  </td>
+                  <td className="table-cell font-mono text-xs">{user.nip}</td>
+                  <td className="table-cell">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-slate-700">
+                      {user.role === 'admin' ? 'Admin' : user.role === 'officer' ? 'Petugas' : 'User'}
+                    </span>
+                  </td>
+                  <td className="table-cell">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${user.isActive ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-400'}`}>{user.isActive ? 'Aktif' : 'Nonaktif'}</span>
+                  </td>
+                  <td className="table-cell text-right">
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => handleView(user)} className="p-1.5 text-primary-600 hover:bg-primary-50 rounded-lg"><FiEye size={18} /></button>
+                      {canManageUsers && (
+                        <>
+                          {isAdmin && (
+                            <button onClick={() => handleResetPasswordClick(user)} className="p-1.5 text-orange-600 hover:bg-orange-50 rounded-lg" title="Reset Password"><FiKey size={18} /></button>
+                          )}
+                          <button onClick={() => handleEdit(user)} className="p-1.5 text-primary-600 hover:bg-primary-50 rounded-lg"><FiEdit2 size={18} /></button>
+                          <button onClick={() => handleDeleteClick(user)} className="p-1.5 text-primary-600 hover:bg-primary-50 rounded-lg"><FiTrash2 size={18} /></button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <ConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={confirmDelete}
+        title="Hapus Pengguna"
+        message="Apakah Anda yakin ingin menghapus pengguna ini?"
+        confirmText="Hapus"
+        type="danger"
+        icon={FiTrash2}
+      />
+
+      <ConfirmationModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        onConfirm={confirmResetPassword}
+        title="Reset Password Pengguna"
+        message={`Apakah Anda yakin ingin mereset password untuk pengguna ${userToReset?.fullName || userToReset?.nip}? Password akan diubah menjadi 123456.`}
+        confirmText="Reset"
+        type="warning"
+        icon={FiKey}
+      />
+
+      {/* User Form Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-            <div
-              className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
-              onClick={() => setIsModalOpen(false)}
-            />
-
-            <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-                  {editingUser ? 'Edit User' : 'Add New User'}
+            <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={() => setIsModalOpen(false)} />
+            <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-2xl px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-xl sm:w-full sm:p-8">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                  {isViewOnly ? 'Detail Pengguna' : editingUser ? 'Ubah Pengguna' : 'Tambah Pengguna Baru'}
                 </h3>
+                <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-500"><FiX size={24} /></button>
+              </div>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Full Name *
-                      </label>
-                      <input
-                        type="text"
-                        name="fullName"
-                        value={values.fullName}
-                        onChange={handleChange}
-                        onBlur={handleBlur}
-                        className="input-field"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        NIP *
-                      </label>
-                      <input
-                        type="text"
-                        name="nip"
-                        value={values.nip}
-                        onChange={handleChange}
-                        onBlur={handleBlur}
-                        className="input-field"
-                        required
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Email *
-                      </label>
-                      <input
-                        type="email"
-                        name="email"
-                        value={values.email}
-                        onChange={handleChange}
-                        onBlur={handleBlur}
-                        className="input-field"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Password {!editingUser && '*'}
-                      </label>
-                      <input
-                        type="password"
-                        name="password"
-                        value={values.password}
-                        onChange={handleChange}
-                        onBlur={handleBlur}
-                        className="input-field"
-                        placeholder={editingUser ? 'Leave blank to keep current' : ''}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Role *
-                      </label>
-                      <select
-                        name="role"
-                        value={values.role}
-                        onChange={handleChange}
-                        className="input-field"
-                      >
-                        <option value="user">User</option>
-                        <option value="officer">Officer</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Department
-                      </label>
-                      <input
-                        type="text"
-                        name="department"
-                        value={values.department}
-                        onChange={handleChange}
-                        onBlur={handleBlur}
-                        className="input-field"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Position
-                      </label>
-                      <input
-                        type="text"
-                        name="position"
-                        value={values.position}
-                        onChange={handleChange}
-                        onBlur={handleBlur}
-                        className="input-field"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Phone
-                      </label>
-                      <input
-                        type="tel"
-                        name="phone"
-                        value={values.phone}
-                        onChange={handleChange}
-                        onBlur={handleBlur}
-                        className="input-field"
-                      />
-                    </div>
-
-                    <div className="flex items-center">
-                      <input
-                        type="checkbox"
-                        name="isActive"
-                        checked={values.isActive}
-                        onChange={handleChange}
-                        id="isActive"
-                        className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                      />
-                      <label
-                        htmlFor="isActive"
-                        className="ml-2 block text-sm text-gray-900 dark:text-gray-300"
-                      >
-                        Active Account
-                      </label>
-                    </div>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Selalu munculkan NIP dan Peran */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">NIP</label>
+                    <input name="nip" value={values.nip} onChange={handleChange} className="input-field" readOnly={isViewOnly} required />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Peran (Role)</label>
+                    <select name="role" value={values.role} onChange={handleChange} className="input-field" disabled={isViewOnly}>
+                      <option value="user">User</option>
+                      <option value="officer">Petugas</option>
+                      <option value="admin">Admin</option>
+                    </select>
                   </div>
 
-                  <div className="mt-6 flex justify-end space-x-3">
-                    <button
-                      type="button"
-                      onClick={() => setIsModalOpen(false)}
-                      className="btn-secondary"
-                    >
-                      Cancel
-                    </button>
+                  {/* Field lainnya hanya muncul jika SEDANG EDIT atau SEDANG LIHAT DETAIL */}
+                  {(editingUser || isViewOnly) && (
+                    <>
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Nama Lengkap</label>
+                        <input name="fullName" value={values.fullName} onChange={handleChange} className="input-field" readOnly={isViewOnly} required />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Email</label>
+                        <input type="email" name="email" value={values.email} onChange={handleChange} className="input-field" readOnly={isViewOnly} />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Departemen</label>
+                        <input name="department" value={values.department} onChange={handleChange} className="input-field" readOnly={isViewOnly} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Jabatan</label>
+                        <input name="position" value={values.position} onChange={handleChange} className="input-field" readOnly={isViewOnly} />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="flex items-center">
+                          <input type="checkbox" name="isActive" checked={values.isActive} onChange={(e) => setValues({ ...values, isActive: e.target.checked })} className="mr-2" disabled={isViewOnly} />
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Akun Aktif</span>
+                        </label>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Jika Menambah Pengguna Baru, berikan keterangan */}
+                  {!editingUser && !isViewOnly && (
+                    <div className="md:col-span-2 p-4 bg-primary-50 dark:bg-primary-900/20 border border-primary-100 dark:border-primary-800 rounded-xl">
+                      <p className="text-xs text-primary-600 dark:text-primary-400 font-medium">
+                        💡 Admin hanya perlu mendaftarkan <strong>NIP</strong> dan <strong>Peran</strong>. Data diri lainnya (Nama, Email, Password, dll) akan diisi sendiri oleh pengguna melalui halaman <strong>Aktivasi Akun</strong>.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {!isViewOnly && (
+                  <div className="mt-8 flex justify-end gap-3">
+                    <button type="button" onClick={() => setIsModalOpen(false)} className="btn-secondary">Batal</button>
                     <button type="submit" className="btn-primary">
-                      {editingUser ? 'Update User' : 'Create User'}
+                      {editingUser ? 'Perbarui Pengguna' : 'Buat Pengguna'}
                     </button>
                   </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {isDeleteModalOpen && userToDelete && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-            <div
-              className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
-              onClick={() => setIsDeleteModalOpen(false)}
-            />
-
-            <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
-              <div>
-                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900">
-                  <FiTrash2 className="h-6 w-6 text-red-600 dark:text-red-400" />
-                </div>
-                <div className="mt-3 text-center sm:mt-5">
-                  <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                    Delete User
-                  </h3>
-                  <div className="mt-2">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Are you sure you want to delete user{' '}
-                      <span className="font-semibold">{userToDelete.fullName}</span>?
-                      This action cannot be undone.
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-5 sm:mt-6 sm:grid sm:grid-cols-2 sm:gap-3 sm:grid-flow-row-dense">
-                <button
-                  type="button"
-                  onClick={() => setIsDeleteModalOpen(false)}
-                  className="btn-secondary sm:col-start-1"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmDelete}
-                  className="btn-danger sm:col-start-2"
-                >
-                  Delete
-                </button>
-              </div>
+                )}
+              </form>
             </div>
           </div>
         </div>

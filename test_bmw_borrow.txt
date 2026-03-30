@@ -1,6 +1,0 @@
-Database connected
-Initial BMW M3 availableQuantity: 0
-Borrowing created (ID: 11, status: pending)
-Approving... Quantity before: 0
-Error in approval: Validation error: Validation min on availableQuantity failed
-Final BMW M3 availableQuantity: 0

@@ -25,15 +25,21 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    if (error.response?.status === 401) {
-      // Clear storage and redirect to login
+    if (error.response?.status === 401 && !error.config.url.includes('/auth/login')) {
+      // Clear storage and redirect to login only if NOT a login attempt
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
     }
 
     const message = error.response?.data?.message || error.message || 'An error occurred';
-    return Promise.reject(message);
+    const errorData = {
+      message,
+      field: error.response?.data?.field,
+      errors: error.response?.data?.errors,
+      alreadyActivated: error.response?.data?.alreadyActivated
+    };
+    return Promise.reject(errorData);
   }
 );
 

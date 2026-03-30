@@ -1,5 +1,0 @@
-Database connected
-Testing reject for borrowing ID: 2
-Transaction committed successfully
-Updated status: rejected
-Notification created: Yes

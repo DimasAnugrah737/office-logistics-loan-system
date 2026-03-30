@@ -14,34 +14,37 @@ const createUser = async (req, res) => {
     // Check if user already exists
     const userExists = await User.findOne({
       where: {
-        [Op.or]: [{ email }, { nip }]
+        [Op.or]: [
+          ...(email ? [{ email }] : []),
+          { nip }
+        ]
       }
     });
 
     if (userExists) {
       return res.status(400).json({
-        message: 'User already exists with this email or NIP'
+        message: userExists.nip === nip ? 'User with this NIP already exists' : 'User with this email already exists'
       });
     }
 
     const user = await User.create({
-      fullName,
+      fullName: fullName || null,
       nip,
-      email,
-      password,
+      email: email || null,
+      password: password || null,
       role: role || 'user',
-      department,
-      position,
-      phone
+      department: department || null,
+      position: position || null,
+      phone: phone || null,
+      isActivated: !!password // If password is provided, assume it's pre-activated or prepared by admin
     });
 
     // Log activity
     await ActivityLog.create({
       userId: req.user.id,
-      action: `Create user: ${fullName}`,
+      action: `Create user (NIP: ${nip}, Role: ${role})`,
       entityType: 'user',
-      entityId: user.id,
-      details: { role, department }
+      entityId: user.id
     });
 
     const userResponse = {
@@ -71,11 +74,33 @@ const createUser = async (req, res) => {
 // @access  Private/Admin
 const getUsers = async (req, res) => {
   try {
-    const users = await User.findAll({
+    const { page = 1, limit = 10, search, role } = req.query;
+    const offset = (page - 1) * limit;
+
+    const whereClause = {};
+    if (role && role !== 'all') whereClause.role = role;
+    if (search) {
+      whereClause[Op.or] = [
+        { fullName: { [Op.like]: `%${search}%` } },
+        { nip: { [Op.like]: `%${search}%` } },
+        { email: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    const { count, rows: users } = await User.findAndCountAll({
       attributes: { exclude: ['password'] },
-      order: [['createdAt', 'DESC']]
+      where: whereClause,
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit) || 10,
+      offset: parseInt(offset) || 0
     });
-    res.json(users);
+
+    res.json({
+      users,
+      total: count,
+      pages: Math.ceil(count / limit),
+      currentPage: parseInt(page)
+    });
   } catch (error) {
     console.error('Get users error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -256,10 +281,41 @@ const deleteUser = async (req, res) => {
   }
 };
 
+// @desc    Reset user password
+// @route   PUT /api/users/:id/reset-password
+// @access  Private/Admin
+const resetPassword = async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Default password set to '123456'
+    user.password = '123456';
+    await user.save();
+
+    // Log activity
+    await ActivityLog.create({
+      userId: req.user.id,
+      action: `Reset password for user: ${user.fullName || user.nip}`,
+      entityType: 'user',
+      entityId: user.id
+    });
+
+    res.json({ message: 'Password berhasil direset menjadi 123456' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 module.exports = {
   createUser,
   getUsers,
   getUserById,
   updateUser,
-  deleteUser
+  deleteUser,
+  resetPassword
 };

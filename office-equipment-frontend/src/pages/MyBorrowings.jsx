@@ -1,17 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { borrowingsAPI } from '../api/borrowings';
 import { useApi } from '../hooks/useApi';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
-import { FiEye, FiCalendar, FiPackage, FiClock, FiSearch, FiFilter, FiPlus } from 'react-icons/fi';
-import { FaCheckCircle, FaTimesCircle, FaClock } from 'react-icons/fa';
+import {
+  FiEye,
+  FiCalendar,
+  FiPackage,
+  FiClock,
+  FiSearch,
+  FiFilter,
+  FiX,
+  FiAlertTriangle,
+  FiBox,
+  FiArrowRight,
+  FiInfo,
+  FiHash,
+  FiMapPin,
+  FiSlash
+} from 'react-icons/fi';
+import { FaCheckCircle, FaTimesCircle, FaClock, FaBan, FaCalendarCheck } from 'react-icons/fa';
 import { format } from 'date-fns';
+import { id } from 'date-fns/locale';
 import toast from 'react-hot-toast';
 
 const MyBorrowings = () => {
   const { user } = useAuth();
   const socket = useSocket();
+  const location = useLocation();
   const [borrowings, setBorrowings] = useState([]);
   const [filteredBorrowings, setFilteredBorrowings] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -21,36 +38,40 @@ const MyBorrowings = () => {
   const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
   const [returnNotes, setReturnNotes] = useState('');
   const [selectedBorrowingForReturn, setSelectedBorrowingForReturn] = useState(null);
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [borrowingToCancel, setBorrowingToCancel] = useState(null);
 
   const { execute: fetchMyBorrowings, loading } = useApi(borrowingsAPI.getUserBorrowingHistory);
   const { execute: requestReturn } = useApi(borrowingsAPI.requestReturn);
+  const { execute: cancelBorrowing } = useApi(borrowingsAPI.cancelBorrowing);
 
   useEffect(() => {
-    loadBorrowings();
-  }, []);
+    const params = new URLSearchParams(location.search);
+    const searchId = params.get('search');
+    if (searchId) {
+      setSearchTerm(searchId);
+      loadBorrowings(searchId);
+    } else {
+      loadBorrowings();
+    }
+  }, [location.search]);
 
-  // Socket listeners for real-time updates
   useEffect(() => {
     if (!socket) return;
-
-    const handleBorrowingUpdate = () => {
-      loadBorrowings();
-    };
-
-    socket.on('borrowing:created', handleBorrowingUpdate);
-    socket.on('borrowing:approved', handleBorrowingUpdate);
-    socket.on('borrowing:rejected', handleBorrowingUpdate);
-    socket.on('borrowing:borrowed', handleBorrowingUpdate);
-    socket.on('borrowing:returned', handleBorrowingUpdate);
-    socket.on('borrowing:return_approved', handleBorrowingUpdate);
-
+    const handleUpdate = () => loadBorrowings();
+    socket.on('borrowing:created', handleUpdate);
+    socket.on('borrowing:approved', handleUpdate);
+    socket.on('borrowing:rejected', handleUpdate);
+    socket.on('borrowing:borrowed', handleUpdate);
+    socket.on('borrowing:returned', handleUpdate);
+    socket.on('borrowing:cancelled', handleUpdate);
     return () => {
-      socket.off('borrowing:created', handleBorrowingUpdate);
-      socket.off('borrowing:approved', handleBorrowingUpdate);
-      socket.off('borrowing:rejected', handleBorrowingUpdate);
-      socket.off('borrowing:borrowed', handleBorrowingUpdate);
-      socket.off('borrowing:returned', handleBorrowingUpdate);
-      socket.off('borrowing:return_approved', handleBorrowingUpdate);
+      socket.off('borrowing:created', handleUpdate);
+      socket.off('borrowing:approved', handleUpdate);
+      socket.off('borrowing:rejected', handleUpdate);
+      socket.off('borrowing:borrowed', handleUpdate);
+      socket.off('borrowing:returned', handleUpdate);
+      socket.off('borrowing:cancelled', handleUpdate);
     };
   }, [socket]);
 
@@ -58,511 +79,365 @@ const MyBorrowings = () => {
     filterBorrowings();
   }, [borrowings, searchTerm, statusFilter]);
 
-  const loadBorrowings = async () => {
+  const loadBorrowings = async (searchId = null) => {
     try {
       const data = await fetchMyBorrowings();
-      setBorrowings(data);
-    } catch (error) {
-      console.error('Failed to load borrowings:', error);
-    }
+      const loaded = Array.isArray(data) ? data : (data?.borrowings || []);
+      setBorrowings(loaded);
+      if (searchId && loaded.length > 0) {
+        const found = loaded.find(b => String(b.id) === String(searchId));
+        if (found) {
+          setViewingBorrowing(found);
+          setIsViewModalOpen(true);
+        }
+      }
+    } catch (e) { }
   };
 
   const filterBorrowings = () => {
     let filtered = [...borrowings];
-
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      filtered = filtered.filter((borrowing) => {
-        const itemName = typeof borrowing.item === 'object' ? borrowing.item.name.toLowerCase() : '';
-        return itemName.includes(term);
-      });
+      filtered = filtered.filter(b => (b.item?.name || '').toLowerCase().includes(term) || String(b.id).includes(term));
     }
-
     if (statusFilter !== 'all') {
-      filtered = filtered.filter((borrowing) => borrowing.status === statusFilter);
+      if (statusFilter === 'unpaid_penalty') {
+        filtered = filtered.filter(b => b.penaltyStatus === 'unpaid' && b.penalty > 0);
+      } else {
+        filtered = filtered.filter(b => b.status === statusFilter);
+      }
     }
-
     setFilteredBorrowings(filtered);
   };
 
-  const handleView = (borrowing) => {
-    setViewingBorrowing(borrowing);
-    setIsViewModalOpen(true);
-  };
-
-  const handleReturnClick = (borrowing) => {
-    if (borrowing.status !== 'borrowed') {
-      toast.error('Only borrowed items can be returned');
-      return;
-    }
-
-    setSelectedBorrowingForReturn(borrowing);
-    setReturnNotes('');
-    setIsReturnModalOpen(true);
-  };
-
   const handleReturnSubmit = async () => {
-    if (!selectedBorrowingForReturn) return;
-
     try {
       await requestReturn(selectedBorrowingForReturn.id, 'good', returnNotes);
-      toast.success('Return request submitted successfully');
+      toast.success('Pengembalian diajukan');
       setIsReturnModalOpen(false);
-      setSelectedBorrowingForReturn(null);
-      setReturnNotes('');
       loadBorrowings();
-    } catch (error) {
-      console.error('Failed to submit return request:', error);
-    }
+    } catch (e) { }
   };
 
-  const getStatusColor = (status) => {
-    const colors = {
-      pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
-      approved: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
-      borrowed: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
-      returned: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
-      returning: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300',
-      rejected: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
+  const handleConfirmCancel = async () => {
+    try {
+      await cancelBorrowing(borrowingToCancel.id);
+      toast.success('Peminjaman dibatalkan');
+      setIsCancelModalOpen(false);
+      loadBorrowings();
+    } catch (e) { }
+  };
+
+  const getStatusInfo = (status) => {
+    const map = {
+      pending: { label: 'Menunggu', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400', icon: <FaClock /> },
+      approved: { label: 'Disetujui', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400', icon: <FaCheckCircle /> },
+      borrowed: { label: 'Sedang Dipinjam', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', icon: <FiPackage /> },
+      returning: { label: 'Proses Kembali', color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400', icon: <FiClock /> },
+      returned: { label: 'Sudah Kembali', color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400', icon: <FaCalendarCheck /> },
+      rejected: { label: 'Ditolak', color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400', icon: <FaTimesCircle /> },
+      cancelled: { label: 'Dibatalkan', color: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400', icon: <FaBan /> },
+      overdue: { label: 'Terlambat', color: 'bg-red-600 text-white animate-pulse', icon: <FiAlertTriangle /> }
     };
-    return colors[status] || colors.pending;
-  };
-
-  const getStatusIcon = (status) => {
-    const icons = {
-      pending: <FaClock className="mr-1" />,
-      approved: <FaCheckCircle className="mr-1" />,
-      borrowed: <FaCheckCircle className="mr-1" />,
-      returned: <FaCheckCircle className="mr-1" />,
-      returning: <FaClock className="mr-1" />,
-      rejected: <FaTimesCircle className="mr-1" />,
-    };
-    return icons[status] || <FaClock className="mr-1" />;
-  };
-
-  const isOverdue = (expectedReturnDate) => {
-    return new Date(expectedReturnDate) < new Date();
+    return map[status] || map.pending;
   };
 
   return (
-    <div className="space-y-6">
-      <div className="page-header">
+    <div className="space-y-10 pb-10">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">My Borrowings</h1>
-          <p className="text-sm text-gray-500 dark:text-slate-400">
-            Track your equipment requests and history
+          <h1 className="text-3xl font-black text-gray-900 dark:text-white uppercase tracking-tighter text-left">Riwayat Peminjaman</h1>
+          <p className="text-xs text-gray-400 font-black uppercase tracking-widest mt-1 flex items-center gap-2">
+            <Link to="/dashboard" className="text-primary-600 hover:underline">Beranda</Link>
+            <span className="text-gray-300">/</span>
+            Lacak dan kelola peralatan Anda
           </p>
         </div>
-        <Link
-          to="/browse-items"
-          className="btn-primary w-full sm:w-auto flex items-center justify-center"
-        >
-          <FiPlus className="mr-2" />
-          Request New Item
-        </Link>
-      </div>
-
-      {/* Filters */}
-      <div className="filter-bar">
-        <div className="filter-grid grid-cols-1 sm:grid-cols-2">
-          <div className="filter-group">
-            <label className="filter-label">
-              Search Items
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FiSearch className="h-5 w-5 text-gray-400" />
-              </div>
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="input-field pl-10"
-                placeholder="Search by item name..."
-              />
-            </div>
+        <div className="flex w-full md:w-auto gap-3">
+          <div className="relative flex-grow md:w-64">
+            <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-primary-500" />
+            <input
+              type="text"
+              placeholder="Cari ID atau barang..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl outline-none text-sm font-bold shadow-sm"
+            />
           </div>
-
-          <div className="filter-group">
-            <label className="filter-label">
-              Status
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FiFilter className="h-5 w-5 text-gray-400" />
-              </div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="input-field pl-10"
-              >
-                <option value="all">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="borrowed">Borrowed</option>
-                <option value="returned">Returned</option>
-                <option value="rejected">Rejected</option>
-              </select>
-            </div>
+          <div className="relative">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="pl-4 pr-10 py-3 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl outline-none text-xs font-black uppercase tracking-widest appearance-none shadow-sm cursor-pointer"
+            >
+              <option value="all">Semua</option>
+              <option value="unpaid_penalty">Denda</option>
+              {['pending', 'approved', 'borrowed', 'returning', 'returned', 'overdue'].map(s => (
+                <option key={s} value={s}>{getStatusInfo(s).label}</option>
+              ))}
+            </select>
+            <FiFilter className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
           </div>
         </div>
       </div>
 
-      {/* Borrowings List */}
-      <div className="card overflow-hidden">
-        {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-          </div>
-        ) : filteredBorrowings.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="mx-auto h-24 w-24 text-gray-400">
-              <FiPackage className="h-full w-full" />
-            </div>
-            <h3 className="mt-4 text-lg font-medium text-gray-900 dark:text-white">
-              No borrowings found
-            </h3>
-            <p className="mt-2 text-gray-600 dark:text-gray-400">
-              {borrowings.length === 0
-                ? "You haven't borrowed any items yet."
-                : "No borrowings match your search criteria."}
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                <thead>
-                  <tr>
-                    <th className="table-header">Item</th>
-                    <th className="table-header">Quantity</th>
-                    <th className="table-header">Borrow Date</th>
-                    <th className="table-header">Return Date</th>
-                    <th className="table-header">Status</th>
-                    <th className="table-header">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {filteredBorrowings.map((borrowing) => (
-                    <tr key={borrowing.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                      <td className="table-cell">
-                        <div className="flex items-center">
-                          <FiPackage className="mr-2 text-gray-400" />
-                          <span className="font-medium text-gray-900 dark:text-white">
-                            {typeof borrowing.item === 'object' ? borrowing.item.name : 'Loading...'}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="table-cell font-bold text-primary-600 dark:text-primary-400">{borrowing.quantity}</td>
-                      <td className="table-cell">
-                        <div className="flex items-center text-xs">
-                          <FiCalendar className="mr-1.5 text-gray-400" />
-                          {format(new Date(borrowing.borrowDate), 'dd MMM yyyy')}
-                        </div>
-                      </td>
-                      <td className="table-cell">
-                        <div className="flex items-center text-xs">
-                          <FiCalendar className="mr-1.5 text-gray-400" />
-                          <span className={isOverdue(borrowing.expectedReturnDate) ? 'text-red-600 dark:text-red-400 font-semibold' : ''}>
-                            {format(new Date(borrowing.expectedReturnDate), 'dd MMM yyyy')}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="table-cell">
-                        <span className={`inline - flex items - center px - 2 py - 0.5 rounded - full text - [10px] font - bold uppercase ${getStatusColor(borrowing.status)} `}>
-                          {getStatusIcon(borrowing.status)}
-                          {borrowing.status}
-                        </span>
-                      </td>
-                      <td className="table-cell">
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleView(borrowing)}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                            title="View Details"
-                          >
-                            <FiEye size={18} />
-                          </button>
-
-                          {borrowing.status === 'borrowed' && !borrowing.returnApprovedAt && (
-                            <button
-                              onClick={() => handleReturnClick(borrowing)}
-                              className="p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors"
-                              title="Request Return"
-                            >
-                              <FiClock size={18} />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile Card View */}
-            <div className="md:hidden space-y-4 p-4">
-              {filteredBorrowings.map((borrowing) => (
-                <div key={borrowing.id} className="card-mobile">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center">
-                      <div className="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg">
-                        <FiPackage className="text-gray-500" size={20} />
-                      </div>
-                      <div className="ml-3">
-                        <h4 className="text-sm font-bold text-gray-900 dark:text-white leading-tight">
-                          {typeof borrowing.item === 'object' ? borrowing.item.name : 'Unknown Item'}
-                        </h4>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          Borrowed: {format(new Date(borrowing.borrowDate), 'dd/MM/yyyy')}
-                        </p>
-                      </div>
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
+        </div>
+      ) : filteredBorrowings.length === 0 ? (
+        <div className="text-center py-24 bg-gray-50 dark:bg-gray-800/30 rounded-[3rem] border-2 border-dashed border-gray-200 dark:border-gray-700">
+          <FiBox size={60} className="mx-auto text-gray-300 mb-6" />
+          <h3 className="text-xl font-black text-gray-900 dark:text-white uppercase tracking-tight">Belum Ada Riwayat</h3>
+          <p className="text-sm text-gray-500 max-w-xs mx-auto mt-2">Anda belum melakukan peminjaman atau tidak ada data yang sesuai filter.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-6">
+          {filteredBorrowings.map((b) => {
+            const status = getStatusInfo(b.status);
+            return (
+              <div
+                key={b.id}
+                className="group bg-white dark:bg-gray-800 rounded-3xl lg:rounded-[2.5rem] p-4 sm:p-6 lg:p-8 border border-gray-100 dark:border-gray-700 hover:shadow-2xl hover:shadow-gray-200/50 dark:hover:shadow-black/20 transition-all duration-500"
+              >
+                <div className="flex flex-col lg:flex-row lg:items-center gap-4 sm:gap-6 lg:gap-8">
+                  
+                  {/* Top Mobile Row (Image + Name) */}
+                  <div className="flex flex-row items-center gap-4 lg:hidden">
+                    <div className="w-20 h-20 sm:w-28 sm:h-28 bg-gray-50 dark:bg-gray-900 rounded-2xl overflow-hidden flex-shrink-0 border border-gray-100 dark:border-gray-700">
+                      {b.item?.image ? (
+                        <img src={`${import.meta.env.VITE_WS_URL || 'http://localhost:5000'}${b.item.image}`} className="w-full h-full object-cover" alt="" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-300"><FiPackage size={24} /></div>
+                      )}
                     </div>
-                    <span className={`px - 2 py - 0.5 rounded - full text - [10px] font - bold uppercase ${getStatusColor(borrowing.status)} `}>
-                      {borrowing.status}
-                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap gap-1 mb-1.5">
+                        <span className={`px-2 py-0.5 rounded-full text-[7px] sm:text-[9px] font-black uppercase tracking-widest ${status.color}`}>
+                          {status.label}
+                        </span>
+                        <span className="text-[7px] sm:text-[9px] font-black text-gray-400 uppercase tracking-widest">#{b.id}</span>
+                      </div>
+                      <h3 className="text-sm sm:text-xl font-black text-gray-900 dark:text-white tracking-tighter truncate">{b.item?.name || 'Barang dihapus'}</h3>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-y-3 mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
-                    <div>
-                      <p className="text-[10px] text-gray-500 uppercase font-semibold">Quantity</p>
-                      <p className="text-sm font-bold text-primary-600 dark:text-primary-400">{borrowing.quantity}</p>
+                  {/* Desktop Image */}
+                  <div className="hidden lg:block w-32 h-32 bg-gray-50 dark:bg-gray-900 rounded-3xl overflow-hidden flex-shrink-0 border border-gray-100 dark:border-gray-700">
+                    {b.item?.image ? (
+                      <img src={`${import.meta.env.VITE_WS_URL || 'http://localhost:5000'}${b.item.image}`} className="w-full h-full object-cover" alt="" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-300"><FiPackage size={40} /></div>
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-grow space-y-3 sm:space-y-4">
+                    <div className="hidden lg:flex flex-wrap items-center gap-3">
+                      <span className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${status.color}`}>
+                        {status.icon}
+                        {status.label}
+                      </span>
+                      {b.penaltyStatus === 'unpaid' && (
+                        <span className="px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-rose-600 text-white shadow-lg shadow-rose-500/30">Denda Tertunggak</span>
+                      )}
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">ID: #{b.id}</span>
                     </div>
-                    <div>
-                      <p className="text-[10px] text-gray-500 uppercase font-semibold">Return By</p>
-                      <p className={`text - sm dark: text - gray - 300 ${isOverdue(borrowing.expectedReturnDate) ? 'text-red-600 font-bold' : ''} `}>
-                        {format(new Date(borrowing.expectedReturnDate), 'dd/MM/yyyy')}
-                      </p>
-                    </div>
-                    <div className="col-span-2 flex justify-end space-x-2 mt-2">
-                      <button
-                        onClick={() => handleView(borrowing)}
-                        className="flex-1 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-lg flex items-center justify-center text-xs font-semibold"
-                      >
-                        <FiEye className="mr-1.5" size={14} /> View
-                      </button>
-                      {borrowing.status === 'borrowed' && !borrowing.returnApprovedAt && (
-                        <button
-                          onClick={() => handleReturnClick(borrowing)}
-                          className="flex-1 py-2 bg-green-50 dark:bg-green-900/20 text-green-600 rounded-lg flex items-center justify-center text-xs font-semibold"
-                        >
-                          <FiClock className="mr-1.5" size={14} /> Return
-                        </button>
+
+                    <h3 className="hidden lg:block text-2xl font-black text-gray-900 dark:text-white tracking-tighter">{b.item?.name || 'Barang dihapus'}</h3>
+
+                    {b.penaltyStatus === 'unpaid' && (
+                      <div className="lg:hidden bg-rose-50 dark:bg-rose-900/20 text-rose-600 rounded-xl px-3 py-2 text-[9px] font-black uppercase tracking-widest flex items-center justify-center">
+                        ⚠️ Denda: Rp {Number(b.penalty).toLocaleString('id-ID')}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-6 pt-2 lg:pt-0 border-t border-gray-50 dark:border-gray-700/50 lg:border-none">
+                      <div>
+                        <p className="text-[8px] sm:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Jumlah</p>
+                        <p className="text-xs sm:text-lg flex items-center sm:block font-black text-primary-600">{b.quantity} U</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] sm:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Tgl Pinjam</p>
+                        <p className="text-[10px] sm:text-sm font-bold text-gray-700 dark:text-gray-300">{format(new Date(b.borrowDate), 'dd MMM yy', { locale: id })}</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] sm:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Est. Kembali</p>
+                        <p className={`text-[10px] sm:text-sm font-bold ${b.status === 'borrowed' && new Date(b.expectedReturnDate) < new Date() ? 'text-rose-600' : 'text-gray-700 dark:text-gray-300'}`}>
+                          {format(new Date(b.expectedReturnDate), 'dd MMM yy', { locale: id })}
+                        </p>
+                      </div>
+                      {b.actualReturnDate && (
+                        <div>
+                          <p className="text-[8px] sm:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Tgl Kembali</p>
+                          <p className="text-[10px] sm:text-sm font-bold text-emerald-600">{format(new Date(b.actualReturnDate), 'dd MMM yy', { locale: id })}</p>
+                        </div>
                       )}
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
 
-      {/* Statistics */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
-        <div className="card border-l-4 border-l-blue-500">
-          <div className="flex items-center">
-            <div className="p-3 rounded-lg bg-blue-100 dark:bg-blue-900/30 mr-4">
-              <FiPackage className="h-6 w-6 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total</p>
-              <p className="text-2xl font-black text-gray-900 dark:text-white">
-                {borrowings.length}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="card border-l-4 border-l-green-500">
-          <div className="flex items-center">
-            <div className="p-3 rounded-lg bg-green-100 dark:bg-green-900/30 mr-4">
-              <FaCheckCircle className="h-6 w-6 text-green-600 dark:text-green-400" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Active</p>
-              <p className="text-2xl font-black text-gray-900 dark:text-white">
-                {borrowings.filter(b => b.status === 'borrowed').length}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="card border-l-4 border-l-yellow-500">
-          <div className="flex items-center">
-            <div className="p-3 rounded-lg bg-yellow-100 dark:bg-yellow-900/30 mr-4">
-              <FaClock className="h-6 w-6 text-yellow-600 dark:text-yellow-400" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pending</p>
-              <p className="text-2xl font-black text-gray-900 dark:text-white">
-                {borrowings.filter(b => b.status === 'pending').length}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* View Borrowing Modal */}
-      {isViewModalOpen && viewingBorrowing && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-            <div
-              className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
-              onClick={() => setIsViewModalOpen(false)}
-            />
-
-            <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full sm:p-6">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-                  Borrowing Details
-                </h3>
-
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Item</p>
-                      <p className="font-medium">
-                        {typeof viewingBorrowing.item === 'object' ? viewingBorrowing.item.name : 'Loading...'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Quantity</p>
-                      <p className="font-medium">{viewingBorrowing.quantity}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Borrow Date</p>
-                      <p className="font-medium">
-                        {format(new Date(viewingBorrowing.borrowDate), 'PP')}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Expected Return</p>
-                      <p className="font-medium">
-                        {format(new Date(viewingBorrowing.expectedReturnDate), 'PP')}
-                      </p>
-                    </div>
-                  </div>
-
-                  {viewingBorrowing.purpose && (
-                    <div className="pt-4 border-t dark:border-gray-700">
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Purpose</p>
-                      <p className="font-medium">{viewingBorrowing.purpose}</p>
-                    </div>
-                  )}
-
-                  {viewingBorrowing.notes && (
-                    <div className="pt-4 border-t dark:border-gray-700">
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Notes</p>
-                      <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-                        <p className="text-gray-800 dark:text-gray-300">{viewingBorrowing.notes}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="pt-4 border-t dark:border-gray-700">
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Status</p>
-                    <span
-                      className={`inline - flex items - center px - 2.5 py - 0.5 rounded - full text - xs font - medium ${getStatusColor(
-                        viewingBorrowing.status
-                      )
-                        } `}
+                  {/* Actions */}
+                  <div className="flex flex-row lg:flex-col w-full lg:w-48 gap-2 sm:gap-3 lg:gap-3 shrink-0 pt-2 lg:pt-0 overflow-x-auto scrollbar-hide pb-1">
+                    <button
+                      onClick={() => { setViewingBorrowing(b); setIsViewModalOpen(true); }}
+                      className="flex-1 lg:flex-none min-w-[70px] py-3 lg:py-3 px-3 lg:px-6 bg-gray-900 border border-gray-900 hover:bg-black hover:border-black text-white rounded-xl lg:rounded-2xl font-black uppercase tracking-widest text-[8px] lg:text-[10px] transition-all flex items-center justify-center gap-1.5"
                     >
-                      {getStatusIcon(viewingBorrowing.status)}
-                      {viewingBorrowing.status}
-                    </span>
+                      <FiEye /> <span className="hidden lg:inline">Detail</span>
+                    </button>
+                    {(b.status === 'borrowed' || b.status === 'overdue') && (
+                      <button
+                        onClick={() => { setSelectedBorrowingForReturn(b); setIsReturnModalOpen(true); }}
+                        className="flex-1 lg:flex-none min-w-[80px] py-3 lg:py-3 px-3 lg:px-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl lg:rounded-2xl font-black uppercase tracking-widest text-[8px] lg:text-[10px] transition-all shadow-md lg:shadow-lg shadow-emerald-500/20"
+                      >
+                        Kembalikan
+                      </button>
+                    )}
+                    {(b.status === 'pending' || b.status === 'approved') && (
+                      <button
+                        onClick={() => { setBorrowingToCancel(b); setIsCancelModalOpen(true); }}
+                        className="flex-1 lg:flex-none min-w-[80px] py-3 lg:py-3 px-3 lg:px-6 bg-white dark:bg-gray-700 border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400 rounded-xl lg:rounded-2xl font-black uppercase tracking-widest text-[8px] lg:text-[10px] hover:bg-rose-50 dark:hover:bg-rose-950 transition-all font-bold"
+                      >
+                        Batalkan
+                      </button>
+                    )}
                   </div>
-
-                  {viewingBorrowing.approver && (
-                    <div className="pt-4 border-t dark:border-gray-700">
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Approved By</p>
-                      <p className="font-medium">
-                        {typeof viewingBorrowing.approver === 'object'
-                          ? viewingBorrowing.approver.fullName
-                          : 'Loading...'}
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-6 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setIsViewModalOpen(false)}
-                    className="btn-secondary"
-                  >
-                    Close
-                  </button>
                 </div>
               </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Stats Summary for User */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="card !p-6 flex flex-col items-center justify-center text-center">
+            <FiPackage className="text-primary-600 mb-2" size={24} />
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total</p>
+            <p className="text-2xl font-black text-gray-900 dark:text-white leading-none mt-1">{borrowings.length}</p>
+        </div>
+        <div className="card !p-6 flex flex-col items-center justify-center text-center">
+            <FiClock className="text-emerald-600 mb-2" size={24} />
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Aktif</p>
+            <p className="text-2xl font-black text-gray-900 dark:text-white leading-none mt-1">{borrowings.filter(b => b.status === 'borrowed' || b.status === 'overdue').length}</p>
+        </div>
+        <div className="card !p-6 flex flex-col items-center justify-center text-center ring-2 ring-primary-500/10">
+            <FaClock className="text-amber-500 mb-2" size={24} />
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Menunggu</p>
+            <p className="text-2xl font-black text-gray-900 dark:text-white leading-none mt-1">{borrowings.filter(b => b.status === 'pending').length}</p>
+        </div>
+        <div className="card !p-6 flex flex-col items-center justify-center text-center ring-2 ring-rose-500/10">
+            <FiAlertTriangle className="text-rose-600 mb-2" size={24} />
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Denda</p>
+            <p className="text-2xl font-black text-rose-600 leading-none mt-1">Rp {(user.totalUnpaidPenalties || 0).toLocaleString('id-ID')}</p>
+        </div>
+      </div>
+
+      {/* Details Modal */}
+      {isViewModalOpen && viewingBorrowing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/80 backdrop-blur-md animate-in fade-in duration-300">
+           <div className="bg-white dark:bg-gray-900 rounded-[3rem] w-full max-w-2xl overflow-hidden shadow-2xl relative">
+              <button onClick={() => setIsViewModalOpen(false)} className="absolute top-6 right-6 p-3 bg-gray-100 dark:bg-gray-800 rounded-full text-gray-500 z-10"><FiX size={20}/></button>
+              <div className="p-8 sm:p-12">
+                <div className="flex flex-wrap items-center gap-4 mb-8">
+                  <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${getStatusInfo(viewingBorrowing.status).color}`}>
+                    {getStatusInfo(viewingBorrowing.status).label}
+                  </span>
+                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Booking ID: #{viewingBorrowing.id}</span>
+                </div>
+
+                <div className="flex gap-8 mb-10">
+                  <div className="w-24 h-24 rounded-3xl bg-gray-50 dark:bg-gray-800 flex-shrink-0 border border-gray-100 dark:border-gray-700 overflow-hidden">
+                    {viewingBorrowing.item?.image ? (
+                      <img src={`${import.meta.env.VITE_WS_URL || 'http://localhost:5000'}${viewingBorrowing.item.image}`} className="w-full h-full object-cover" alt=""/>
+                    ) : <FiPackage className="w-full h-full p-6 text-gray-300"/>}
+                  </div>
+                  <div>
+                    <h2 className="text-3xl font-black text-gray-900 dark:text-white tracking-tighter mb-2">{viewingBorrowing.item?.name}</h2>
+                    <p className="text-sm font-medium text-gray-500 leading-relaxed italic line-clamp-2">{viewingBorrowing.item?.description || 'Tidak ada deskripsi tambahan.'}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-8 mb-10">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-gray-50 dark:bg-gray-800 rounded-2xl flex items-center justify-center text-primary-600"><FiCalendar size={24}/></div>
+                    <div>
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Rentang Peminjaman</p>
+                      <p className="text-sm font-bold text-gray-900 dark:text-white">
+                        {format(new Date(viewingBorrowing.borrowDate), 'dd MMM')} - {format(new Date(viewingBorrowing.expectedReturnDate), 'dd MMM yyyy')}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-gray-50 dark:bg-gray-800 rounded-2xl flex items-center justify-center text-primary-600"><FiInfo size={24}/></div>
+                    <div>
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Jumlah Unit</p>
+                      <p className="text-sm font-bold text-gray-900 dark:text-white">{viewingBorrowing.quantity} Barang</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-8 border-t border-gray-100 dark:border-gray-800">
+                  <h4 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-widest">Tujuan Penggunaan</h4>
+                  <div className="p-6 bg-gray-50 dark:bg-gray-800/50 rounded-3xl border border-gray-100 dark:border-gray-700 text-sm italic font-medium text-gray-600 dark:text-gray-400">
+                    "{viewingBorrowing.purpose || 'Tanpa keterangan.'}"
+                  </div>
+                </div>
+
+                {viewingBorrowing.penalty > 0 && (
+                  <div className="mt-8 p-6 bg-rose-50 dark:bg-rose-900/10 rounded-[2rem] border border-rose-100 dark:border-rose-900/30 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">Informasi Denda</p>
+                      <p className="text-xl font-black text-rose-600 dark:text-rose-400">Rp {Number(viewingBorrowing.penalty).toLocaleString('id-ID')}</p>
+                    </div>
+                    <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${viewingBorrowing.penaltyStatus === 'paid' ? 'bg-emerald-500 text-white' : 'bg-rose-600 text-white'}`}>
+                      {viewingBorrowing.penaltyStatus === 'paid' ? 'Lunas' : 'Belum Lunas'}
+                    </span>
+                  </div>
+                )}
+
+                <button onClick={() => setIsViewModalOpen(false)} className="w-full mt-10 py-5 bg-gray-900 dark:bg-gray-800 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-black transition-all">Tutup Riwayat</button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Cancel Modal */}
+      {isCancelModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-gray-900/90 backdrop-blur-md animate-in zoom-in duration-200">
+          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-md text-center border border-white/10">
+            <div className="w-20 h-20 bg-rose-50 dark:bg-rose-900/30 text-rose-600 rounded-3xl flex items-center justify-center mx-auto mb-6 transform -rotate-12">
+              <FiSlash size={40}/>
+            </div>
+            <h3 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tighter mb-3">Batalkan Peminjaman?</h3>
+            <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8 px-4">Apakah Anda yakin ingin membatalkan pengajuan ini? Proses ini tidak dapat dikembalikan lagi setelah disetujui.</p>
+            <div className="grid grid-cols-2 gap-4">
+              <button onClick={() => setIsCancelModalOpen(false)} className="py-4 bg-gray-100 dark:bg-gray-800 text-gray-500 font-bold uppercase tracking-widest text-[10px] rounded-2xl">Kembali</button>
+              <button onClick={handleConfirmCancel} className="py-4 bg-rose-600 text-white font-black uppercase tracking-widest text-[10px] rounded-2xl shadow-xl shadow-rose-500/20">Ya, Batalkan</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Return Request Modal */}
-      {isReturnModalOpen && selectedBorrowingForReturn && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-            <div
-              className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
-              onClick={() => setIsReturnModalOpen(false)}
+      {/* Return Notes Modal */}
+      {isReturnModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-gray-900/90 backdrop-blur-md animate-in zoom-in duration-200">
+          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-sm border border-white/10">
+            <div className="text-center mb-8">
+               <div className="w-16 h-16 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                 <FiPackage size={32}/>
+               </div>
+               <h3 className="text-xl font-black text-gray-900 dark:text-white uppercase tracking-tighter">Kembalikan Barang</h3>
+               <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">Selesaikan Sesi Peminjaman</p>
+            </div>
+            <textarea
+              className="w-full p-6 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-3xl outline-none text-sm font-medium italic focus:border-primary-500 transition-all min-h-[120px] mb-8"
+              placeholder="Tambahkan catatan kondisi barang..."
+              value={returnNotes}
+              onChange={(e) => setReturnNotes(e.target.value)}
             />
-
-            <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md sm:w-full sm:p-6">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-                  Request Item Return
-                </h3>
-
-                <div className="mb-4">
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                    Are you sure you want to return this item?
-                  </p>
-                  <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <p className="font-medium">
-                      {typeof selectedBorrowingForReturn.item === 'object'
-                        ? selectedBorrowingForReturn.item.name
-                        : 'Loading...'}
-                    </p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      Borrowed on {format(new Date(selectedBorrowingForReturn.borrowDate), 'PP')}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Return Notes (Optional)
-                  </label>
-                  <textarea
-                    value={returnNotes}
-                    onChange={(e) => setReturnNotes(e.target.value)}
-                    rows="3"
-                    className="input-field"
-                    placeholder="Add any notes about the return condition..."
-                  />
-                </div>
-
-                <div className="mt-6 flex justify-end space-x-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsReturnModalOpen(false)}
-                    className="btn-secondary"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleReturnSubmit}
-                    className="btn-primary"
-                  >
-                    Submit Return Request
-                  </button>
-                </div>
-              </div>
+            <div className="grid grid-cols-2 gap-4">
+               <button onClick={() => setIsReturnModalOpen(false)} className="py-4 bg-gray-100 dark:bg-gray-800 text-gray-500 font-bold uppercase tracking-widest text-xs rounded-2xl">Batal</button>
+               <button onClick={handleReturnSubmit} className="py-4 bg-emerald-600 text-white font-black uppercase tracking-widest text-xs rounded-2xl shadow-lg shadow-emerald-500/20">Kirim</button>
             </div>
           </div>
         </div>

@@ -28,7 +28,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const userData = await authAPI.getCurrentUser();
       setUser(userData);
-      
+
       // Set theme from user preference
       if (userData.themePreference && userData.themePreference !== theme) {
         toggleTheme(userData.themePreference);
@@ -47,16 +47,16 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('token', response.token);
       localStorage.setItem('user', JSON.stringify(response));
       setUser(response);
-      
+
       // Update theme based on user preference
       if (response.themePreference && response.themePreference !== theme) {
         toggleTheme(response.themePreference);
       }
-      
+
       toast.success('Login successful!');
       return response;
     } catch (error) {
-      toast.error(error || 'Login failed');
+      toast.error(error.message || 'Login failed');
       throw error;
     }
   };
@@ -80,7 +80,7 @@ export const AuthProvider = ({ children }) => {
     setTheme(themeToSet);
     localStorage.setItem('theme', themeToSet);
     document.documentElement.classList.toggle('dark', themeToSet === 'dark');
-    
+
     // Update theme preference in backend if user is logged in
     if (user) {
       authAPI.updateTheme(themeToSet).catch(console.error);

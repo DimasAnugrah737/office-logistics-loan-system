@@ -9,7 +9,7 @@ const ActivityLog = sequelize.define('ActivityLog', {
   },
   userId: {
     type: DataTypes.INTEGER,
-    allowNull: false,
+    allowNull: true,
     references: {
       model: 'Users',
       key: 'id'
@@ -42,7 +42,30 @@ const ActivityLog = sequelize.define('ActivityLog', {
 }, {
   tableName: 'activitylogs',
   freezeTableName: true,
-  timestamps: true
+  timestamps: true,
+  hooks: {
+    afterCreate: async (log, options) => {
+      try {
+        const socket = require('../utils/socket');
+        const User = require('./User');
+
+        // Fetch user data for the log to match the frontend expectations
+        const logWithUser = await ActivityLog.findByPk(log.id, {
+          include: [{
+            model: User,
+            as: 'user',
+            attributes: ['fullName', 'email', 'role']
+          }]
+        });
+
+        if (logWithUser) {
+          socket.emitToAll('activity:created', logWithUser);
+        }
+      } catch (error) {
+        console.error('Socket emission error in ActivityLog hook:', error);
+      }
+    }
+  }
 });
 
 ActivityLog.prototype.toJSON = function () {

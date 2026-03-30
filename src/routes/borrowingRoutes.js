@@ -10,7 +10,9 @@ const {
   requestReturn,
   approveReturn,
   getDashboardStats,
-  getUserBorrowingHistory
+  getUserBorrowingHistory,
+  cancelBorrowing,
+  updatePenaltyStatus
 } = require('../controllers/borrowingController');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -28,13 +30,15 @@ router.post('/', createBorrowing);
 router.get('/', getBorrowings);
 router.get('/:id', getBorrowingById);
 
-// Approval routes (Officer only)
-router.put('/:id/approve', authorize('officer'), approveBorrowing);
-router.put('/:id/reject', authorize('officer'), rejectBorrowing);
-router.put('/:id/borrow', authorize('officer'), markAsBorrowed);
+// Approval routes (Officer/Admin)
+router.put('/:id/approve', authorize('officer', 'admin'), approveBorrowing);
+router.put('/:id/reject', authorize('officer', 'admin'), rejectBorrowing);
+router.put('/:id/borrow', authorize('officer', 'admin'), markAsBorrowed);
 
 // Return routes
 router.put('/:id/return-request', requestReturn);
-router.put('/:id/approve-return', authorize('officer'), approveReturn);
+router.put('/:id/approve-return', authorize('officer', 'admin'), approveReturn);
+router.put('/:id/cancel', cancelBorrowing);
+router.put('/:id/penalty', authorize('officer', 'admin'), updatePenaltyStatus);
 
 module.exports = router;

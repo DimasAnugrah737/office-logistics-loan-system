@@ -5,19 +5,23 @@ const {
   getUsers,
   getUserById,
   updateUser,
-  deleteUser
+  deleteUser,
+  resetPassword
 } = require('../controllers/userController');
 const { protect, authorize } = require('../middleware/auth');
 
 // Protect all routes
 router.use(protect);
 
-// Public routes for authenticated users
+// Public routes for authenticated users (Admin and Officer can see list)
 router.route('/')
-  .get(getUsers);
+  .get(authorize('admin', 'officer'), getUsers);
 
-// Admin only routes
-router.use(authorize('admin'));
+// Admin and Officer routes
+router.use(authorize('admin', 'officer'));
+
+// Admin strictly for password reset
+router.put('/:id/reset-password', authorize('admin'), resetPassword);
 
 router.route('/')
   .post(createUser);

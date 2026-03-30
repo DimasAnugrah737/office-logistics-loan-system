@@ -40,7 +40,7 @@ const Item = sequelize.define('Item', {
     }
   },
   condition: {
-    type: DataTypes.ENUM('excellent', 'good', 'fair', 'poor', 'broken'),
+    type: DataTypes.ENUM('good', 'broken'),
     defaultValue: 'good'
   },
   location: {
@@ -63,7 +63,8 @@ const Item = sequelize.define('Item', {
 }, {
   tableName: 'items',
   freezeTableName: true,
-  timestamps: true
+  timestamps: true,
+  paranoid: true
 });
 
 Item.prototype.toJSON = function () {

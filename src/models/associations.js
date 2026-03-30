@@ -28,8 +28,8 @@ const setupAssociations = () => {
   // Borrowing associations
   Borrowing.belongsTo(User, { foreignKey: 'userId', as: 'user' });
   Borrowing.belongsTo(Item, { foreignKey: 'itemId', as: 'item' });
-  Borrowing.belongsTo(User, { foreignKey: 'approvedBy', as: 'approver', onDelete: 'SET NULL' });
-  Borrowing.belongsTo(User, { foreignKey: 'returnApprovedBy', as: 'returnApprover', onDelete: 'SET NULL' });
+  Borrowing.belongsTo(User, { foreignKey: 'approvedBy', as: 'approverUser', onDelete: 'SET NULL' });
+  Borrowing.belongsTo(User, { foreignKey: 'returnApprovedBy', as: 'returnApproverUser', onDelete: 'SET NULL' });
   Borrowing.hasMany(Notification, { foreignKey: 'relatedBorrowingId', as: 'notifications' });
 
   // Notification associations

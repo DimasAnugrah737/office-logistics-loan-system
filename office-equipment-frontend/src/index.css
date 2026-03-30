@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,6 +7,17 @@
 @layer base {
   body {
     @apply bg-gray-50 text-gray-900 dark:bg-[#0f172a] dark:text-gray-100;
+    font-family: 'Inter', sans-serif;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  .font-display {
+    font-family: 'Outfit', sans-serif;
   }
 }
 
@@ -30,7 +43,7 @@
   }
 
   .card-mobile {
-    @apply bg-white rounded-xl shadow-sm p-4 dark:bg-[#1e293b] border border-gray-100 dark:border-slate-800 mb-4;
+    @apply bg-white rounded-xl shadow-sm p-3 dark:bg-[#1e293b] border border-gray-100 dark:border-slate-800 mb-3;
   }
 
   .table-header {
@@ -76,14 +89,106 @@
   }
 
   .filter-label {
-    @apply text-xs font-bold text-gray-500 uppercase tracking-widest dark:text-slate-400;
+    @apply text-[10px] font-bold text-gray-400 uppercase tracking-[0.15em] dark:text-slate-500 mb-1.5;
+    font-family: 'Outfit', sans-serif;
+  }
+
+  .meta-label {
+    @apply text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider;
+    font-family: 'Outfit', sans-serif;
   }
 }
 
 
-/* Reset any centering from Vite defaults */
+/* Custom Date Input Styling - Clean & Professional */
+input[type="date"] {
+  position: relative;
+  color-scheme: light;
+  /* Default */
+}
+
+.dark input[type="date"] {
+  color-scheme: dark;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  background: transparent;
+  bottom: 0;
+  color: transparent;
+  cursor: pointer;
+  height: auto;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: auto;
+  z-index: 10;
+}
+
+/* Base body reset */
 body {
   margin: 0;
   min-width: 100%;
   overflow-x: hidden;
+}
+
+@keyframes bounce-slow {
+
+  0%,
+  100% {
+    transform: translateY(-5%);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+  }
+
+  50% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+}
+
+.animate-bounce-slow {
+  animation: bounce-slow 3s infinite;
+}
+
+@keyframes blob {
+  0% { transform: translate(0px, 0px) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+  100% { transform: translate(0px, 0px) scale(1); }
+}
+
+.animate-blob {
+  animation: blob 7s infinite;
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.5s ease-out forwards;
 }

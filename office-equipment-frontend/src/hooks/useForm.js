@@ -11,7 +11,7 @@ export const useForm = (initialValues, validate) => {
       ...values,
       [name]: type === 'checkbox' ? checked : value,
     });
-    
+
     if (touched[name]) {
       const validationErrors = validate ? validate(values) : {};
       setErrors(validationErrors);
@@ -24,7 +24,7 @@ export const useForm = (initialValues, validate) => {
       ...touched,
       [name]: true,
     });
-    
+
     if (validate) {
       const validationErrors = validate(values);
       setErrors(validationErrors);
@@ -53,5 +53,6 @@ export const useForm = (initialValues, validate) => {
     resetForm,
     setFieldValue,
     setValues,
+    setErrors,
   };
 };

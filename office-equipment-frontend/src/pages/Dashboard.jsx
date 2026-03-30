@@ -11,19 +11,18 @@ import {
   FiTrendingUp,
   FiCheckCircle,
   FiAlertCircle,
+  FiShoppingBag,
+  FiSearch
 } from 'react-icons/fi';
+import BorrowerDashboard from './BorrowerDashboard';
 import {
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
+  LineChart,
+  Line,
 } from 'recharts';
 
 const Dashboard = () => {
@@ -89,18 +88,17 @@ const Dashboard = () => {
           borrowedBorrowings: 0,
           returnedBorrowings: 0
         }));
-        const borrowingsData = await borrowingsAPI.getAllBorrowings({ limit: 5 }).catch(e => []);
+        const response = await borrowingsAPI.getAllBorrowings({ limit: 5 }).catch(e => ({ borrowings: [] }));
         setStats(statsData);
-        setRecentBorrowings(Array.isArray(borrowingsData) ? borrowingsData : []);
+        setRecentBorrowings(Array.isArray(response.borrowings) ? response.borrowings : []);
       } else {
         // User dashboard
-        const itemsData = await itemsAPI.getAllItems({ limit: 5 }).catch(e => []);
         const borrowingsData = await borrowingsAPI.getUserBorrowingHistory().catch(e => []);
         setStats({
-          availableItems: Array.isArray(itemsData) ? itemsData.length : 0,
-          myBorrowings: Array.isArray(borrowingsData) ? borrowingsData.length : 0,
+          overdueBorrowings: Array.isArray(borrowingsData) ? borrowingsData.filter(b => b.status === 'overdue').length : 0,
+          totalUnpaidPenalties: Array.isArray(borrowingsData) ? borrowingsData.reduce((sum, b) => b.penaltyStatus === 'unpaid' ? sum + Number(b.penalty) : sum, 0) : 0,
           pendingBorrowings: Array.isArray(borrowingsData) ? borrowingsData.filter(b => b.status === 'pending').length : 0,
-          activeBorrowings: Array.isArray(borrowingsData) ? borrowingsData.filter(b => b.status === 'borrowed').length : 0,
+          activeBorrowings: Array.isArray(borrowingsData) ? borrowingsData.filter(b => (b.status === 'borrowed' || b.status === 'returning')).length : 0,
         });
         setRecentBorrowings(Array.isArray(borrowingsData) ? borrowingsData.slice(0, 5) : []);
       }
@@ -111,7 +109,7 @@ const Dashboard = () => {
         totalUsers: 0,
         pendingBorrowings: 0,
         overdueBorrowings: 0,
-        availableItems: 0,
+        returnedItems: 0,
         myBorrowings: 0,
         activeBorrowings: 0
       });
@@ -141,72 +139,119 @@ const Dashboard = () => {
     );
   }
 
+  if (!isAdmin && !isOfficer) {
+    return <BorrowerDashboard />;
+  }
+
   return (
     <div className="space-y-6">
       <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Dashboard</h1>
           <p className="text-sm text-gray-500 dark:text-slate-400">
-            Welcome back, {user?.fullName}!
+            Selamat datang kembali, {user?.fullName}!
           </p>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+      {user?.isBlockedFromBorrowing && (
+        <div className="bg-red-50 dark:bg-slate-800/80 border-l-4 border-red-500 rounded-2xl p-5 mb-6 shadow-sm flex items-start space-x-4 animate-in fade-in slide-in-from-left-4 duration-500 overflow-hidden relative group">
+          <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+            <FiAlertCircle size={80} className="text-red-500 rotate-12" />
+          </div>
+          <div className="flex-shrink-0 w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center border border-red-200 dark:border-red-800/50">
+            <FiAlertCircle className="h-6 w-6 text-red-600 dark:text-red-400" />
+          </div>
+          <div className="flex-grow">
+            <h4 className="text-base font-black text-red-800 dark:text-red-300 uppercase tracking-tight">Akun Ditangguhkan</h4>
+            <div className="mt-1 space-y-1">
+              <p className="text-sm font-bold text-red-700 dark:text-red-200">
+                {user.blockReason || 'Anda memiliki masalah yang harus segera diselesaikan.'}
+              </p>
+              <p className="text-[11px] font-medium text-red-600/80 dark:text-red-400/80 max-w-2xl leading-relaxed">
+                Silakan hubungi petugas sarana prasarana untuk menyelesaikan denda atau mengembalikan barang yang terlambat. Anda tidak dapat melakukan peminjaman baru sampai status akun diaktifkan kembali.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stats Cards - Updated column count based on role */}
+      <div className={`grid grid-cols-2 ${isAdmin ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3 sm:gap-6`}>
         {(isAdmin || isOfficer) ? (
           <>
-            <div className="card !p-4 flex items-center space-x-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                <FiPackage className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+            <div className="card !p-3 sm:!p-4 flex items-center space-x-3 sm:space-x-4">
+              <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gray-50/50 dark:bg-slate-800/50 flex items-center justify-center border border-gray-100 dark:border-slate-700">
+                <FiPackage className="h-5 w-5 sm:h-6 sm:w-6 text-primary-600 dark:text-primary-400" />
               </div>
               <div>
-                <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500">
-                  Total Items
+                <p className="text-[10px] sm:text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500">
+                  Total Barang
                 </p>
-                <p className="text-2xl font-black text-gray-900 dark:text-white leading-tight">
+                <p className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white leading-tight">
                   {stats?.totalItems || 0}
                 </p>
               </div>
             </div>
 
-            <div className="card !p-4 flex items-center space-x-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-                <FiUsers className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+            {isAdmin && (
+              <div className="card !p-3 sm:!p-4 flex items-center space-x-3 sm:space-x-4">
+                <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gray-50/50 dark:bg-slate-800/50 flex items-center justify-center border border-gray-100 dark:border-slate-700">
+                  <FiUsers className="h-5 w-5 sm:h-6 sm:w-6 text-primary-600 dark:text-primary-400" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] sm:text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500 truncate">
+                    Total Pengguna
+                  </p>
+                  <p className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white leading-tight">
+                    {stats?.totalUsers || 0}
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500">
-                  Total Users
+            )}
+
+            <div className="card !p-3 sm:!p-4 flex items-center space-x-3 sm:space-x-4">
+              <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-amber-50/50 dark:bg-amber-900/10 flex items-center justify-center border border-amber-100 dark:border-amber-900/30">
+                <FiAlertCircle className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] sm:text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500 truncate">
+                  Total Denda
                 </p>
-                <p className="text-2xl font-black text-gray-900 dark:text-white leading-tight">
-                  {stats?.totalUsers || 0}
+                <p className="text-sm sm:text-lg font-black text-gray-900 dark:text-white leading-tight truncate">
+                  Rp {(stats?.totalUnpaidPenalties || 0).toLocaleString('id-ID')}
                 </p>
               </div>
             </div>
 
-            <div className="card !p-4 flex items-center space-x-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20">
-                <FiCalendar className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+            <div className="card !p-3 sm:!p-4 flex items-center space-x-3 sm:space-x-4">
+              <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gray-50/50 dark:bg-slate-800/50 flex items-center justify-center border border-gray-100 dark:border-slate-700">
+                <FiCalendar className="h-5 w-5 sm:h-6 sm:w-6 text-primary-600 dark:text-primary-400" />
               </div>
               <div>
-                <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500">
-                  Pending Requests
+                <p className="text-[10px] sm:text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500">
+                  Permintaan Menunggu
                 </p>
-                <p className="text-2xl font-black text-gray-900 dark:text-white leading-tight">
+                <p className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white leading-tight">
                   {stats?.pendingBorrowings || 0}
                 </p>
               </div>
             </div>
 
-            <div className="card !p-4 flex items-center space-x-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-rose-500/10 flex items-center justify-center border border-rose-500/20">
-                <FiClock className="h-6 w-6 text-rose-600 dark:text-rose-400" />
+            <div className={`card !p-3 sm:!p-4 flex items-center space-x-3 sm:space-x-4 transition-all duration-300 ${stats?.overdueBorrowings > 0 ? 'ring-2 ring-red-500/20 bg-red-50/10' : ''}`}>
+              <div className={`flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center border ${stats?.overdueBorrowings > 0 ? 'bg-red-500 text-white border-red-400 animate-pulse' : 'bg-gray-50/50 dark:bg-slate-800/50 text-primary-600 dark:text-primary-400 border-gray-100 dark:border-slate-700'}`}>
+                <FiClock className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
-              <div>
-                <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500">
-                  Overdue Items
-                </p>
-                <p className="text-2xl font-black text-gray-900 dark:text-white leading-tight">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] sm:text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500 truncate">
+                    Barang Terlambat
+                  </p>
+                  {stats?.overdueBorrowings > 0 && (
+                    <span className="flex h-2 w-2 rounded-full bg-red-500 animate-ping"></span>
+                  )}
+                </div>
+                <p className={`text-xl sm:text-2xl font-black leading-tight ${stats?.overdueBorrowings > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>
                   {stats?.overdueBorrowings || 0}
                 </p>
               </div>
@@ -214,57 +259,57 @@ const Dashboard = () => {
           </>
         ) : (
           <>
-            <div className="card !p-4 flex items-center space-x-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                <FiPackage className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+            <div className="card !p-3 sm:!p-4 flex items-center space-x-3 sm:space-x-4">
+              <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-red-50/50 dark:bg-red-900/10 flex items-center justify-center border border-red-100 dark:border-red-900/30">
+                <FiClock className="h-5 w-5 sm:h-6 sm:w-6 text-red-600 dark:text-red-400" />
               </div>
               <div>
-                <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500">
-                  Available Items
+                <p className="text-[10px] sm:text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500">
+                  Barang Terlambat
                 </p>
-                <p className="text-2xl font-black text-gray-900 dark:text-white leading-tight">
-                  {stats?.availableItems || 0}
+                <p className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white leading-tight">
+                  {stats?.overdueBorrowings || 0}
                 </p>
               </div>
             </div>
 
-            <div className="card !p-4 flex items-center space-x-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-                <FiCheckCircle className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+            <div className="card !p-3 sm:!p-4 flex items-center space-x-3 sm:space-x-4">
+              <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-amber-50/50 dark:bg-amber-900/10 flex items-center justify-center border border-amber-100 dark:border-amber-900/30">
+                <FiAlertCircle className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600 dark:text-amber-400" />
               </div>
-              <div>
-                <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500">
-                  My Borrowings
+              <div className="min-w-0">
+                <p className="text-[10px] sm:text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500 truncate">
+                  Total Denda
                 </p>
-                <p className="text-2xl font-black text-gray-900 dark:text-white leading-tight">
-                  {stats?.myBorrowings || 0}
+                <p className="text-sm sm:text-lg font-black text-gray-900 dark:text-white leading-tight truncate">
+                  Rp {(stats?.totalUnpaidPenalties || 0).toLocaleString('id-ID')}
                 </p>
               </div>
             </div>
 
-            <div className="card !p-4 flex items-center space-x-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20">
-                <FiClock className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+            <div className="card !p-3 sm:!p-4 flex items-center space-x-3 sm:space-x-4">
+              <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center border border-gray-200 dark:border-slate-700">
+                <FiClock className="h-5 w-5 sm:h-6 sm:w-6 text-primary-600 dark:text-primary-400" />
               </div>
               <div>
-                <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500">
-                  Pending Requests
+                <p className="text-[10px] sm:text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500">
+                  Menunggu Persetujuan
                 </p>
-                <p className="text-2xl font-black text-gray-900 dark:text-white leading-tight">
+                <p className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white leading-tight">
                   {stats?.pendingBorrowings || 0}
                 </p>
               </div>
             </div>
 
-            <div className="card !p-4 flex items-center space-x-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                <FiTrendingUp className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+            <div className="card !p-3 sm:!p-4 flex items-center space-x-3 sm:space-x-4">
+              <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center border border-gray-200 dark:border-slate-700">
+                <FiTrendingUp className="h-5 w-5 sm:h-6 sm:w-6 text-primary-600 dark:text-primary-400" />
               </div>
               <div>
-                <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500">
-                  Active Borrowings
+                <p className="text-[10px] sm:text-[11px] font-bold text-gray-500 uppercase tracking-widest dark:text-slate-500">
+                  Peminjaman Aktif
                 </p>
-                <p className="text-2xl font-black text-gray-900 dark:text-white leading-tight">
+                <p className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white leading-tight">
                   {stats?.activeBorrowings || 0}
                 </p>
               </div>
@@ -273,84 +318,130 @@ const Dashboard = () => {
         )}
       </div>
 
-      {/* Charts for Admin/Officer */}
-      {(isAdmin || isOfficer) && stats && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="card">
-            <h3 className="text-base font-bold text-gray-900 dark:text-white mb-6 uppercase tracking-wider">
-              Borrowings Trend
-            </h3>
-            <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={stats?.monthlyTrends || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                  <XAxis
-                    dataKey="_id.month"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 12, fill: '#6b7280' }}
-                    tickFormatter={(value) => {
-                      const date = new Date();
-                      date.setMonth(value - 1);
-                      return date.toLocaleString('default', { month: 'short' });
-                    }}
-                  />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: '8px',
-                      border: 'none',
-                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-                      backgroundColor: '#fff'
-                    }}
-                    cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
-                  />
-                  <Bar dataKey="count" fill="#3b82f6" radius={[6, 6, 0, 0]} name="Borrowings" />
-                </BarChart>
-              </ResponsiveContainer>
+      {/* Charts for Admin/Officer - Side by side even on mobile */}
+      {
+        (isAdmin || isOfficer) && stats && (
+          <div className="grid grid-cols-2 gap-3 sm:gap-6">
+            <div className="card">
+              <h3 className="text-[10px] sm:text-base font-bold text-gray-900 dark:text-white mb-2 sm:mb-6 uppercase tracking-wider">
+                Tren Peminjaman
+              </h3>
+              <div className="h-[200px] sm:h-[400px] w-full min-h-[200px]">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
+                  <LineChart data={stats?.monthlyTrends || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" strokeOpacity={0.5} />
+                    <XAxis
+                      dataKey="_id.month"
+                      axisLine={false}
+                      tickLine={false}
+                      interval={0}
+                      tick={{ fontSize: window.innerWidth < 640 ? 8 : 10, fill: '#6b7280' }}
+                      tickFormatter={(value) => {
+                        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+                        return months[value - 1] || value;
+                      }}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fontSize: window.innerWidth < 640 ? 8 : 10, fill: '#6b7280' }}
+                      width={window.innerWidth < 640 ? 15 : 25}
+                      allowDecimals={false}
+                      domain={[0, 'auto']}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: '12px',
+                        border: 'none',
+                        boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                        backdropFilter: 'blur(4px)'
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="count"
+                      stroke="#3b82f6"
+                      strokeWidth={4}
+                      dot={{ r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff' }}
+                      activeDot={{ r: 6, strokeWidth: 0 }}
+                      name="Peminjaman"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             </div>
-          </div>
 
-          <div className="card">
-            <h3 className="text-base font-bold text-gray-900 dark:text-white mb-6 uppercase tracking-wider">
-              Status Distribution
-            </h3>
-            <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={(stats?.statusStats || []).map(stat => ({
-                      ...stat,
-                      name: stat._id.charAt(0).toUpperCase() + stat._id.slice(1)
-                    }))}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="count"
-                  >
-                    {(stats?.statusStats || []).map((entry, index) => (
-                      <Cell key={entry._id ?? `cell-${index}`} fill={getPieColor(entry._id)} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend verticalAlign="bottom" height={36} />
-                </PieChart>
-              </ResponsiveContainer>
+            <div className="card">
+              <h3 className="text-[10px] sm:text-base font-bold text-gray-900 dark:text-white mb-2 sm:mb-6 uppercase tracking-wider">
+                Distribusi Status
+              </h3>
+              <div className="h-[200px] sm:h-[400px] w-full mt-4 overflow-y-auto custom-scrollbar">
+                <div className="space-y-3 sm:space-y-6 px-1">
+                  {(stats?.statusStats || [])
+                    .filter(stat => stat.count > 0)
+                    .sort((a, b) => b.count - a.count)
+                    .map((stat, index) => {
+                      const total = stats.statusStats.reduce((sum, s) => sum + s.count, 0);
+                      const percentage = total > 0 ? (stat.count / total) * 100 : 0;
+                      const statusLabels = {
+                        pending: 'Menunggu',
+                        approved: 'Disetujui',
+                        borrowed: 'Dipinjam',
+                        returned: 'Dikembalikan',
+                        returning: 'Proses Kembali',
+                        rejected: 'Ditolak',
+                        overdue: 'Terlambat',
+                      };
+                      const statusName = statusLabels[stat._id] || stat._id;
+                      const color = getPieColor(stat._id);
+
+                      return (
+                        <div key={stat._id} className="group">
+                          <div className="flex justify-between items-end mb-1 sm:mb-2">
+                            <div className="flex items-center space-x-2">
+                              <div className="w-2 h-2 sm:w-3 sm:h-3 rounded-full" style={{ backgroundColor: color }} />
+                              <span className="text-[9px] sm:text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-tight">
+                                {statusName}
+                              </span>
+                            </div>
+                            <div className="flex items-baseline space-x-1">
+                              <span className="text-xs sm:text-lg font-black text-gray-900 dark:text-white leading-none">
+                                {stat.count}
+                              </span>
+                              <span className="text-[8px] sm:text-[10px] font-bold text-gray-400">
+                                ({percentage.toFixed(0)}%)
+                              </span>
+                            </div>
+                          </div>
+                          <div className="h-1.5 sm:h-3 w-full bg-gray-100 dark:bg-gray-700/50 rounded-full overflow-hidden border border-gray-200/50 dark:border-gray-600/30">
+                            <div
+                              className="h-full rounded-full transition-all duration-1000 ease-out shadow-sm"
+                              style={{
+                                width: `${percentage}%`,
+                                backgroundColor: color,
+                                boxShadow: `0 0 10px ${color}33`
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Recent Activity */}
       <div className="card overflow-hidden">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-6 gap-4 border-b border-gray-100 dark:border-gray-700">
           <h3 className="text-base font-bold text-gray-900 dark:text-white uppercase tracking-wider">
-            Recent {isAdmin || isOfficer ? 'Borrowings' : 'My Borrowings'}
+            {isAdmin || isOfficer ? 'Peminjaman Terbaru' : 'Peminjaman Saya Terbaru'}
           </h3>
           <button className="text-sm font-bold text-primary-600 hover:text-primary-700 dark:text-primary-400 flex items-center">
-            View all <FiTrendingUp className="ml-1" />
+            Lihat semua <FiTrendingUp className="ml-1 text-primary-600 dark:text-primary-400" />
           </button>
         </div>
 
@@ -359,9 +450,9 @@ const Dashboard = () => {
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead>
               <tr>
-                <th className="table-header">Item</th>
-                <th className="table-header">Quantity</th>
-                <th className="table-header">Borrow Date</th>
+                <th className="table-header">Barang</th>
+                <th className="table-header">Jumlah</th>
+                <th className="table-header">Tanggal Pinjam</th>
                 <th className="table-header">Status</th>
               </tr>
             </thead>
@@ -377,7 +468,15 @@ const Dashboard = () => {
                   </td>
                   <td className="table-cell">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${getStatusColor(borrowing.status)}`}>
-                      {borrowing.status}
+                      {({
+                        pending: 'Menunggu',
+                        approved: 'Disetujui',
+                        borrowed: 'Dipinjam',
+                        returned: 'Dikembalikan',
+                        returning: 'Proses Kembali',
+                        rejected: 'Ditolak',
+                        overdue: 'Terlambat',
+                      })[borrowing.status] || borrowing.status}
                     </span>
                   </td>
                 </tr>
@@ -389,7 +488,7 @@ const Dashboard = () => {
         {/* Mobile View */}
         <div className="md:hidden divide-y divide-gray-100 dark:divide-gray-700">
           {recentBorrowings.map((borrowing) => (
-            <div key={borrowing.id} className="p-4 flex justify-between items-center">
+            <div key={borrowing.id} className="p-3 flex justify-between items-center">
               <div className="min-w-0">
                 <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
                   {typeof borrowing.item === 'object' ? borrowing.item.name : 'Loading...'}
@@ -399,28 +498,36 @@ const Dashboard = () => {
                 </p>
               </div>
               <div className="flex flex-col items-end gap-1">
-                <span className="text-xs font-bold text-primary-600">Qty: {borrowing.quantity}</span>
+                <span className="text-xs font-bold text-primary-600">Jml: {borrowing.quantity}</span>
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${getStatusColor(borrowing.status)}`}>
-                  {borrowing.status}
+                  {({
+                    pending: 'Menunggu',
+                    approved: 'Disetujui',
+                    borrowed: 'Dipinjam',
+                    returned: 'Dikembalikan',
+                    returning: 'Proses Kembali',
+                    rejected: 'Ditolak',
+                    overdue: 'Terlambat',
+                  })[borrowing.status] || borrowing.status}
                 </span>
               </div>
             </div>
           ))}
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 
 const getPieColor = (status) => {
   const colors = {
-    pending: '#f59e0b',
+    pending: '#3b82f6',
     approved: '#3b82f6',
-    borrowed: '#10b981',
+    borrowed: '#3b82f6',
     returned: '#6b7280',
     returning: '#6366f1',
-    rejected: '#ef4444',
-    overdue: '#dc2626',
+    rejected: '#6b7280',
+    overdue: '#3b82f6',
   };
   return colors[status] || '#6b7280';
 };

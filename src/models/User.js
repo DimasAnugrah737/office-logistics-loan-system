@@ -11,10 +11,7 @@ const User = sequelize.define('User', {
 
   fullName: {
     type: DataTypes.STRING,
-    allowNull: false,
-    validate: {
-      notEmpty: true
-    }
+    allowNull: true
   },
 
   nip: {
@@ -28,7 +25,7 @@ const User = sequelize.define('User', {
 
   email: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
     unique: true,
     validate: {
       isEmail: true,
@@ -38,10 +35,12 @@ const User = sequelize.define('User', {
 
   password: {
     type: DataTypes.STRING,
-    allowNull: false,
-    validate: {
-      notEmpty: true
-    }
+    allowNull: true
+  },
+
+  isActivated: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
   },
 
   role: {
@@ -73,12 +72,23 @@ const User = sequelize.define('User', {
   themePreference: {
     type: DataTypes.ENUM('light', 'dark'),
     defaultValue: 'light'
+  },
+
+  isBlockedFromBorrowing: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+
+  blockReason: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 
 }, {
   tableName: 'users',        // WAJIB: sesuai nama tabel di phpMyAdmin
   freezeTableName: true,     // Jangan diubah jadi plural
   timestamps: true,
+  paranoid: true,
 
   hooks: {
     beforeCreate: async (user) => {

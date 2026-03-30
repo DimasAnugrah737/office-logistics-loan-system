@@ -1,7 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { notificationsAPI } from '../api/notifications';
 import { useAuth } from './AuthContext';
-import { io } from 'socket.io-client';
+import { useSocket } from './SocketContext';
 
 const NotificationContext = createContext({});
 
@@ -10,55 +10,39 @@ export const useNotifications = () => useContext(NotificationContext);
 export const NotificationProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [socket, setSocket] = useState(null);
   const { user, isAuthenticated } = useAuth();
+  const socket = useSocket();
 
   useEffect(() => {
     if (isAuthenticated) {
       fetchNotifications();
-      connectWebSocket();
     } else {
       setNotifications([]);
       setUnreadCount(0);
-      if (socket) {
-        socket.disconnect();
-        setSocket(null);
-      }
     }
+  }, [isAuthenticated, user?.id]);
+
+  // Use the shared socket for notifications
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleNotification = (data) => {
+      console.log('New notification received in context:', data);
+      const normalizedData = {
+        ...data,
+        id: data.id || data._id,
+        _id: data._id || data.id
+      };
+      setNotifications(prev => [normalizedData, ...prev]);
+      setUnreadCount(prev => prev + 1);
+    };
+
+    socket.on('notification', handleNotification);
 
     return () => {
-      if (socket) {
-        socket.disconnect();
-      }
+      socket.off('notification', handleNotification);
     };
-  }, [isAuthenticated, user?._id]);
-
-  const connectWebSocket = () => {
-    const token = localStorage.getItem('token');
-    const isProduction = import.meta.env.MODE === 'production';
-    const wsUrl = isProduction ? window.location.origin : (import.meta.env.VITE_WS_URL || 'ws://localhost:5000');
-
-    const newSocket = io(wsUrl, {
-      query: { token },
-      transports: ['websocket', 'polling'],
-    });
-
-    newSocket.on('connect', () => {
-      console.log('WebSocket connected');
-    });
-
-    newSocket.on('notification', (data) => {
-      console.log('New notification:', data);
-      setNotifications(prev => [data, ...prev]);
-      setUnreadCount(prev => prev + 1);
-    });
-
-    newSocket.on('disconnect', () => {
-      console.log('WebSocket disconnected');
-    });
-
-    setSocket(newSocket);
-  };
+  }, [socket]);
 
   const fetchNotifications = async () => {
     try {
@@ -78,7 +62,7 @@ export const NotificationProvider = ({ children }) => {
       await notificationsAPI.markAsRead(id);
       setNotifications(prev =>
         prev.map(notif =>
-          notif._id === id ? { ...notif, isRead: true } : notif
+          (notif._id === id || notif.id === id) ? { ...notif, isRead: true } : notif
         )
       );
       setUnreadCount(prev => Math.max(0, prev - 1));
@@ -102,8 +86,8 @@ export const NotificationProvider = ({ children }) => {
   const deleteNotification = async (id) => {
     try {
       await notificationsAPI.deleteNotification(id);
-      const notification = notifications.find(n => n._id === id);
-      setNotifications(prev => prev.filter(notif => notif._id !== id));
+      const notification = notifications.find(n => n._id === id || n.id === id);
+      setNotifications(prev => prev.filter(notif => notif._id !== id && notif.id !== id));
       if (notification && !notification.isRead) {
         setUnreadCount(prev => Math.max(0, prev - 1));
       }

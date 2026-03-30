@@ -18,6 +18,11 @@ const Category = sequelize.define('Category', {
   description: {
     type: DataTypes.TEXT
   },
+  managingDepartment: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: null
+  },
   createdBy: {
     type: DataTypes.INTEGER,
     allowNull: false
@@ -25,7 +30,8 @@ const Category = sequelize.define('Category', {
 }, {
   tableName: 'categories',
   freezeTableName: true,
-  timestamps: true
+  timestamps: true,
+  paranoid: true
 });
 
 Category.prototype.toJSON = function () {

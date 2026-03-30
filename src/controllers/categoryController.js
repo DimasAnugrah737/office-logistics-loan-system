@@ -9,7 +9,7 @@ const { emitToAll } = require('../utils/socket');
 // @access  Private/Admin
 const createCategory = async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, managingDepartment } = req.body;
 
     // Check if category already exists
     const categoryExists = await Category.findOne({ where: { name } });
@@ -20,6 +20,7 @@ const createCategory = async (req, res) => {
     const category = await Category.create({
       name,
       description,
+      managingDepartment: managingDepartment || null,
       createdBy: req.user.id
     });
 
@@ -67,7 +68,7 @@ const getCategories = async (req, res) => {
 // @access  Private/Admin
 const updateCategory = async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, managingDepartment } = req.body;
 
     let category = await Category.findByPk(req.params.id);
 
@@ -90,6 +91,7 @@ const updateCategory = async (req, res) => {
 
     category.name = name || category.name;
     category.description = description || category.description;
+    category.managingDepartment = managingDepartment !== undefined ? managingDepartment : category.managingDepartment;
 
     const updatedCategory = await category.save();
 

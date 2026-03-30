@@ -10,4 +10,6 @@ export const usersAPI = {
   updateUser: (id, userData) => api.put(`/users/${id}`, userData),
   
   deleteUser: (id) => api.delete(`/users/${id}`),
+
+  resetPassword: (id) => api.put(`/users/${id}/reset-password`),
 };
