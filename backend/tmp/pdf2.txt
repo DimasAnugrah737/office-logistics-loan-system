@@ -1,0 +1,5 @@
+TypeError: dest.once is not a function
+    at Readable.pipe (node:internal/streams/readable:1044:8)
+    at getInventoryReport (C:\Users\Thinkpad L13\office-equipment\backend\src\controllers\reportController.js:506:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async [eval]:1:493

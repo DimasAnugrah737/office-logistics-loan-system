@@ -1,0 +1,4 @@
+TypeError: res.status is not a function
+    at getInventoryReport (C:\Users\Thinkpad L13\office-equipment\backend\src\controllers\reportController.js:558:9)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async [eval]:1:322
