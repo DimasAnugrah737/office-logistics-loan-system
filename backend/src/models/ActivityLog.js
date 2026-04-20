@@ -11,7 +11,7 @@ const ActivityLog = sequelize.define('ActivityLog', {
     type: DataTypes.INTEGER,
     allowNull: true,
     references: {
-      model: 'Users',
+      model: 'users',
       key: 'id'
     }
   },

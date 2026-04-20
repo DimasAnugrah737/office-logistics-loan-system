@@ -67,7 +67,7 @@ const Borrowing = sequelize.define('Borrowing', {
     type: DataTypes.INTEGER,
     allowNull: true,
     references: {
-      model: 'Users',
+      model: 'users',
       key: 'id'
     }
   },
