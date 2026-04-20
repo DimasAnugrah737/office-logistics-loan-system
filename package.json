@@ -5,6 +5,7 @@
   "scripts": {
     "postinstall": "npm install --prefix backend",
     "build": "npm run postinstall",
+    "dev": "npm start",
     "start": "node backend/server.js"
   },
   "engines": {
