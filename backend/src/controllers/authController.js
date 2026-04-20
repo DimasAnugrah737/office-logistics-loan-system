@@ -12,9 +12,12 @@ const { Op } = require('sequelize');
  * @returns {string} Token JWT.
  */
 const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE
-  });
+  // Gunakan rahasia dari env, atau fallback ke teks default jika belum diatur
+  const secret = process.env.JWT_SECRET || 'office_equipment_secret_key_2024';
+  // Gunakan durasi dari env (misal: 7d), atau fallback ke 1 hari (86400 detik)
+  const expiresIn = process.env.JWT_EXPIRE || '1d';
+  
+  return jwt.sign({ id }, secret, { expiresIn });
 };
 
 /**

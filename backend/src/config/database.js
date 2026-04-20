@@ -62,13 +62,13 @@ const connectDB = async (retries = 5) => {
         console.log(`MySQL Connected: ${process.env.DB_HOST || process.env.MYSQLHOST}:${process.env.DB_PORT || process.env.MYSQLPORT}`);
       }
 
-      // 2. Sinkronisasi model Sequelize - PAKSA RESET (Hanya Sekali)
-      // Kita gunakan force: true untuk menghapus aturan Foreign Key lama yang salah
+      // 2. Sinkronisasi model Sequelize - Mode Normal (Alter)
+      // Kita kembalikan ke alter: true agar data tidak terhapus setiap restart
       await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
-      await sequelize.sync({ force: true });
+      await sequelize.sync({ alter: true });
       await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
       
-      console.log('Database RESET and synchronized successfully');
+      console.log('Database synchronized successfully (Normal Mode)');
       return; // Berhasil, keluar dari loop
 
     } catch (error) {
