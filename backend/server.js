@@ -55,68 +55,42 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 const server = http.createServer(app);
 
-// Middleware CORS menggunakan pustaka standar agar lebih stabil
+// 1. LOGGER REQUEST (PALING ATAS - UNTUK DEBUG 405)
+app.use((req, res, next) => {
+  console.log(`>>> [DEBUG] ${req.method} ${req.url}`);
+  next();
+});
+
+// 2. CORS (PENTING UNTUK VERCEL)
 app.use(cors({
-    origin: true, // Mengizinkan semua origin di fase testing ini
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
-    credentials: true
+  origin: true,
+  credentials: true
 }));
 
-// Middleware keamanan Helmet untuk melindungi dari kerentanan umum
+// 3. MIDDLEWARE STANDAR
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(compression());
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// Pembatasan jumlah permintaan (Rate Limiting) untuk mencegah penyalahgunaan API
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 menit
-  max: 1000, // Maksimal 1000 permintaan per 15 menit
-  message: 'Terlalu banyak permintaan dari IP ini, silakan coba lagi setelah 15 menit',
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api', limiter);
-
-// Pembatasan percobaan login yang lebih ketat untuk keamanan akun
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 25,
-  message: { message: 'Terlalu banyak percobaan login, silakan coba lagi dalam 15 menit' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api/auth/login', loginLimiter);
-
-// Mengaktifkan kompresi Gzip untuk mempercepat pengiriman data
-app.use(compression());
-
-// Parser untuk data JSON dan URL-encoded dari permintaan klien
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-const path = require('path');
-
-// Middleware untuk mencatat aktivitas log (monitoring)
+// 4. LOG AKTIVITAS
 app.use(logActivity);
 
-// --- DEBUGGING MIDDLEWARE ---
-// Mencetak setiap request yang masuk untuk melacak error 405
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
+// 5. RUTE DEBUG (Untuk Tes apakah API bisa dihubungi)
+app.get('/api/debug', (req, res) => {
+  res.json({ message: 'API connection is working!', time: new Date() });
 });
 
-// --- RUTE API ---
-// Semua request ke /api akan dilempar ke folder routes
+// 6. RUTE API UTAMA
 app.use('/api', routes);
 
-// Health check untuk root (Mencegah 405 atau 404 saat dibuka di browser)
+// 7. ROOT HEALTH CHECK
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'Office Equipment Management System API is running!',
-    status: 'online',
+    message: 'Office Equipment Management System API is online!',
     database: 'connected'
   });
 });

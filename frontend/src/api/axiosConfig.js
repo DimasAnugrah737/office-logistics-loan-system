@@ -2,7 +2,12 @@ import axios from 'axios';
 
 const isProduction = import.meta.env.MODE === 'production';
 const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-export const API_URL = import.meta.env.VITE_API_URL || `http://${hostname}:5000/api`;
+let rawApiUrl = import.meta.env.VITE_API_URL || `http://${hostname}:5000/api`;
+// Pastikan API_URL selalu diawali dengan http atau https agar tidak dianggap rute relatif
+if (rawApiUrl && !rawApiUrl.startsWith('http')) {
+  rawApiUrl = `https://${rawApiUrl}`;
+}
+export const API_URL = rawApiUrl;
 export const WS_URL = import.meta.env.VITE_WS_URL || `http://${hostname}:5000`;
 export const IMAGE_BASE_URL = WS_URL;
 
