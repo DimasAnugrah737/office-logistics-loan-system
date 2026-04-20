@@ -138,7 +138,7 @@ app.use((err, req, res, next) => {
 
 // Menentukan HOST dan PORT server
 const args = process.argv.slice(2);
-const HOST = process.env.HOST || (args.includes('--host') ? '0.0.0.0' : '0.0.0.0');
+const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 5001;
 
 // Fungsi untuk memulai server secara asinkron

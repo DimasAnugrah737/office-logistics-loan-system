@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const isProduction = import.meta.env.MODE === 'production';
 const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-export const API_URL = import.meta.env.VITE_API_URL || (isProduction ? '/api' : `http://${hostname}:5000/api`);
+export const API_URL = import.meta.env.VITE_API_URL || `http://${hostname}:5000/api`;
 export const WS_URL = import.meta.env.VITE_WS_URL || `http://${hostname}:5000`;
 export const IMAGE_BASE_URL = WS_URL;
 
