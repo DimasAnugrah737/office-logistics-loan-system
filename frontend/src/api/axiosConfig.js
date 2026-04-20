@@ -8,7 +8,8 @@ if (rawApiUrl && !rawApiUrl.startsWith('http')) {
   rawApiUrl = `https://${rawApiUrl}`;
 }
 export const API_URL = rawApiUrl;
-export const WS_URL = import.meta.env.VITE_WS_URL || `http://${hostname}:5000`;
+// Hilangkan '/api' dari ujung URL untuk mendapatkan basis URL server (untuk gambar & socket)
+export const WS_URL = API_URL.replace(/\/api$/, '');
 export const IMAGE_BASE_URL = WS_URL;
 
 const api = axios.create({
