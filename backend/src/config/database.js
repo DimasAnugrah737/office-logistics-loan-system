@@ -8,28 +8,38 @@ require('dotenv').config();
  * Inisialisasi instance Sequelize dengan parameter dari variabel lingkungan.
  * Mendukung variabel standar (DB_*) dan variabel otomatis dari Railway (MYSQL*).
  */
-const sequelize = new Sequelize(
-  process.env.DB_NAME || process.env.MYSQLDATABASE,
-  process.env.DB_USER || process.env.MYSQLUSER,
-  process.env.DB_PASSWORD || process.env.MYSQLPASSWORD,
-  {
-    host: process.env.DB_HOST || process.env.MYSQLHOST,
-    port: process.env.DB_PORT || process.env.MYSQLPORT,
-    dialect: 'mysql',
-    logging: process.env.NODE_ENV === 'development' ? console.log : false,
-    dialectOptions: {
-      ssl: process.env.DB_SSL === 'true' ? {
-        rejectUnauthorized: false
-      } : false
-    },
-    pool: {
-      max: 5,
-      min: 0,
-      acquire: 30000,
-      idle: 10000
-    }
-  }
-);
+const sequelize = process.env.DATABASE_URL 
+  ? new Sequelize(process.env.DATABASE_URL, {
+      dialect: 'mysql',
+      logging: process.env.NODE_ENV === 'development' ? console.log : false,
+      dialectOptions: {
+        ssl: process.env.DB_SSL === 'true' || process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT ? {
+          rejectUnauthorized: false
+        } : false
+      }
+    })
+  : new Sequelize(
+      process.env.DB_NAME || process.env.MYSQLDATABASE,
+      process.env.DB_USER || process.env.MYSQLUSER,
+      process.env.DB_PASSWORD || process.env.MYSQLPASSWORD,
+      {
+        host: process.env.DB_HOST || process.env.MYSQLHOST,
+        port: process.env.DB_PORT || process.env.MYSQLPORT,
+        dialect: 'mysql',
+        logging: process.env.NODE_ENV === 'development' ? console.log : false,
+        dialectOptions: {
+          ssl: process.env.DB_SSL === 'true' || process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT ? {
+            rejectUnauthorized: false
+          } : false
+        },
+        pool: {
+          max: 5,
+          min: 0,
+          acquire: 30000,
+          idle: 10000
+        }
+      }
+    );
 
 /**
  * Fungsi untuk menghubungkan ke database dan melakukan sinkronisasi struktur tabel.
