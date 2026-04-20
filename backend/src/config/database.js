@@ -48,11 +48,19 @@ const sequelize = process.env.DATABASE_URL
 const connectDB = async (retries = 5) => {
   while (retries) {
     try {
-      console.log(`Mencoba menghubungkan ke Database di ${process.env.DB_HOST || process.env.MYSQLHOST || 'localhost'}:${process.env.DB_PORT || process.env.MYSQLPORT || '3306'}...`);
+      if (process.env.DATABASE_URL) {
+        console.log('Mencoba menghubungkan ke Database menggunakan DATABASE_URL...');
+      } else {
+        console.log(`Mencoba menghubungkan ke Database di ${process.env.DB_HOST || process.env.MYSQLHOST || 'localhost'}:${process.env.DB_PORT || process.env.MYSQLPORT || '3306'}...`);
+      }
       
       // 1. Menguji koneksi autentikasi ke database
       await sequelize.authenticate();
-      console.log(`MySQL Connected: ${process.env.DB_HOST || process.env.MYSQLHOST}:${process.env.DB_PORT || process.env.MYSQLPORT}`);
+      if (process.env.DATABASE_URL) {
+        console.log('MySQL Connected via DATABASE_URL');
+      } else {
+        console.log(`MySQL Connected: ${process.env.DB_HOST || process.env.MYSQLHOST}:${process.env.DB_PORT || process.env.MYSQLPORT}`);
+      }
 
       // 2. Sinkronisasi model Sequelize dengan tabel database
       await sequelize.sync({ alter: false });
