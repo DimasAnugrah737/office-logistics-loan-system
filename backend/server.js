@@ -113,12 +113,18 @@ app.use('/api', routes);
 // Mengizinkan akses publik ke folder unggahan (untuk gambar/file item)
 app.use('/uploads', express.static('uploads'));
 
-// Menyajikan file statis dari build aplikasi React (Frontend)
-app.use(express.static(path.join(__dirname, '../frontend/dist')));
+// Route dasar untuk mengecek status API
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Office Equipment Management System API is running!',
+    status: 'online',
+    database: 'connected'
+  });
+});
 
-// Menangani permintaan rute yang tidak dikenal dengan mengirimkan ke index.html React
-app.get(/^(?!\/(api|uploads)).*/, (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+// Penanganan 404 untuk rute yang tidak ditemukan
+app.use((req, res) => {
+  res.status(404).json({ message: 'Resource tidak ditemukan' });
 });
 
 // Middleware penanganan error global
