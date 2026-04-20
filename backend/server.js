@@ -55,19 +55,13 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 const server = http.createServer(app);
 
-// Middleware CORS kustom untuk mengizinkan akses dari berbagai origin
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  res.setHeader('Access-Control-Allow-Origin', origin || '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  next();
-});
+// Middleware CORS menggunakan pustaka standar agar lebih stabil
+app.use(cors({
+    origin: true, // Mengizinkan semua origin di fase testing ini
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+    credentials: true
+}));
 
 // Middleware keamanan Helmet untuk melindungi dari kerentanan umum
 app.use(helmet({
@@ -107,13 +101,18 @@ const path = require('path');
 // Middleware untuk mencatat aktivitas log (monitoring)
 app.use(logActivity);
 
-// Definisi rute API utama
+// --- DEBUGGING MIDDLEWARE ---
+// Mencetak setiap request yang masuk untuk melacak error 405
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
+// --- RUTE API ---
+// Semua request ke /api akan dilempar ke folder routes
 app.use('/api', routes);
 
-// Mengizinkan akses publik ke folder unggahan (untuk gambar/file item)
-app.use('/uploads', express.static('uploads'));
-
-// Route dasar untuk mengecek status API
+// Health check untuk root (Mencegah 405 atau 404 saat dibuka di browser)
 app.get('/', (req, res) => {
   res.json({ 
     message: 'Office Equipment Management System API is running!',
@@ -122,29 +121,21 @@ app.get('/', (req, res) => {
   });
 });
 
-// Penanganan 404 untuk rute yang tidak ditemukan
-app.use((req, res) => {
-  res.status(404).json({ message: 'Resource tidak ditemukan' });
-});
-
 // Middleware penanganan error global
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('SERVER ERROR:', err.stack);
   try {
-    // Mencatat error ke file error.log
     fs.appendFileSync('error.log', `${new Date().toISOString()} - ${req.method} ${req.url} - ${err.message}\n${err.stack}\n\n`);
-  } catch (logErr) {
-    console.error('Gagal menulis ke error.log:', logErr);
-  }
+  } catch (logErr) {}
+  
   res.status(500).json({
     message: 'Terjadi kesalahan sistem!',
     error: process.env.NODE_ENV === 'development' ? err.message : {}
   });
 });
 
-// Menentukan HOST dan PORT server
-const args = process.argv.slice(2);
-const HOST = process.env.HOST || '0.0.0.0';
+// Menentukan HOST dan PORT server secara dinamis untuk cloud platforms
+const HOST = '0.0.0.0';
 const PORT = process.env.PORT || 5001;
 
 // Fungsi untuk memulai server secara asinkron
