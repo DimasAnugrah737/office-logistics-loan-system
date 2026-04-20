@@ -63,7 +63,10 @@ const connectDB = async (retries = 5) => {
       }
 
       // 2. Sinkronisasi model Sequelize dengan tabel database
+      // Nonaktifkan foreign key checks sejenak agar tidak error saat pembuatan tabel baru
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
       await sequelize.sync({ alter: false });
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
       
       // 3. Pastikan kolom yang diperlukan tersedia di tabel
       // (Logika migrasi manual dipertahankan)
