@@ -79,9 +79,36 @@ app.use(helmet({
 // 4. LOG AKTIVITAS
 app.use(logActivity);
 
-// 5. RUTE DEBUG (Untuk Tes apakah API bisa dihubungi)
+// 5. RUTE DEBUG & SETUP ADMIN (Hanya untuk inisialisasi pertama)
 app.get('/api/debug', (req, res) => {
   res.json({ message: 'API connection is working!', time: new Date() });
+});
+
+app.get('/api/setup-admin', async (req, res) => {
+  try {
+    const User = require('./src/models/User');
+    const existingUser = await User.findOne();
+    
+    if (existingUser) {
+      return res.json({ message: 'User sudah ada di database. Rute ini sudah tidak bisa digunakan.' });
+    }
+
+    const admin = await User.create({
+      nip: 'admin',
+      name: 'Super Admin',
+      email: 'admin@example.com',
+      password: 'admin123', // Password default
+      role: 'admin',
+      isActivated: true
+    });
+
+    res.json({ 
+      message: 'Akun Admin berhasil dibuat!', 
+      login: 'nip: admin | password: admin123' 
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 6. RUTE API UTAMA
