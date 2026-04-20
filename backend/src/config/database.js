@@ -62,40 +62,13 @@ const connectDB = async (retries = 5) => {
         console.log(`MySQL Connected: ${process.env.DB_HOST || process.env.MYSQLHOST}:${process.env.DB_PORT || process.env.MYSQLPORT}`);
       }
 
-      // 2. Sinkronisasi model Sequelize dengan tabel database
-      // Nonaktifkan foreign key checks sejenak agar tidak error saat pembuatan tabel baru
+      // 2. Sinkronisasi model Sequelize - PAKSA RESET (Hanya Sekali)
+      // Kita gunakan force: true untuk menghapus aturan Foreign Key lama yang salah
       await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
-      await sequelize.sync({ alter: false });
+      await sequelize.sync({ force: true });
       await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
       
-      // 3. Pastikan kolom yang diperlukan tersedia di tabel
-      // (Logika migrasi manual dipertahankan)
-      try {
-        await sequelize.query("ALTER TABLE borrowings ADD COLUMN lastNotificationAt DATETIME NULL;");
-      } catch (e) {}
-
-      try {
-        await sequelize.query("ALTER TABLE items ADD COLUMN brokenQuantity INT DEFAULT 0;");
-      } catch (e) {}
-
-      try {
-        await sequelize.query("ALTER TABLE categories ADD COLUMN code VARCHAR(255) NOT NULL DEFAULT 'TEMP';");
-      } catch (e) {}
-
-      try {
-        await sequelize.query("ALTER TABLE items ADD COLUMN specifications JSON NULL;");
-      } catch (e) {}
-
-      try {
-        const DamageReport = require('../models/DamageReport');
-        await DamageReport.sync();
-      } catch (e) {}
-
-      try {
-        await sequelize.query("ALTER TABLE notifications MODIFY COLUMN type ENUM('borrow_request', 'borrow_approved', 'borrow_rejected', 'return_request', 'return_approved', 'overdue_warning', 'system') DEFAULT 'system';");
-      } catch (e) {}
-
-      console.log('Database synchronized successfully');
+      console.log('Database RESET and synchronized successfully');
       return; // Berhasil, keluar dari loop
 
     } catch (error) {
