@@ -18,7 +18,7 @@ const sequelize = new Sequelize(
     dialect: 'mysql',
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
     dialectOptions: {
-      ssl: process.env.DB_SSL === 'true' || process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT ? {
+      ssl: process.env.DB_SSL === 'true' ? {
         rejectUnauthorized: false
       } : false
     },
