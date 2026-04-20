@@ -6,22 +6,22 @@ require('dotenv').config();
 
 /**
  * Inisialisasi instance Sequelize dengan parameter dari variabel lingkungan.
+ * Mendukung variabel standar (DB_*) dan variabel otomatis dari Railway (MYSQL*).
  */
 const sequelize = new Sequelize(
-  process.env.DB_NAME,
-  process.env.DB_USER,
-  process.env.DB_PASSWORD,
+  process.env.DB_NAME || process.env.MYSQLDATABASE,
+  process.env.DB_USER || process.env.MYSQLUSER,
+  process.env.DB_PASSWORD || process.env.MYSQLPASSWORD,
   {
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
-    dialect: 'mysql', // Menggunakan database MySQL
+    host: process.env.DB_HOST || process.env.MYSQLHOST,
+    port: process.env.DB_PORT || process.env.MYSQLPORT,
+    dialect: 'mysql',
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
     dialectOptions: {
-      ssl: process.env.DB_SSL === 'true' || process.env.NODE_ENV === 'production' ? {
+      ssl: process.env.DB_SSL === 'true' || process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT ? {
         rejectUnauthorized: false
       } : false
     },
-    // Pengaturan koneksi pool untuk efisiensi
     pool: {
       max: 5,
       min: 0,
